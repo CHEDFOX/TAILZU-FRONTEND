@@ -11,6 +11,8 @@ import assert from "node:assert";
 import { fillText, navParams, resolveValue, type Scope } from "./fill.ts";
 import { Store } from "./state.ts";
 import { isOpenableUrl } from "../security.ts";
+import { compileProp, runProp } from "./kernel/text.ts";
+import { networkPathOk } from "./kernel/paths.ts";
 
 const scope = (state: Record<string, any>, flags: Record<string, any> = {}): Scope =>
   ({ store: new Store(state), flags, labels: { "ask.empty": "Say what to do" } });
@@ -73,4 +75,54 @@ test("a toast's words: a catalog key, a sentence with state in it", () => {
   assert.equal(fillText("@ask.empty", s), "Say what to do");
   assert.equal(fillText("@missing.key", s), "");
   assert.equal(fillText("Paying $state.name.", s), "Paying Rahul.");
+});
+
+// ---------------------------------------------------------------------------
+// VOCAB 2 INSIDE AN ACTION (pure/SPEC.md 2.2, 2.4): the kernel, where the references are filled in.
+
+/** The hook actions.ts puts on the scope for a screen that asked for `expr`, with the real kernel behind it. */
+function withKernel(state: Record<string, any>): Scope {
+  const s = scope(state);
+  return {
+    ...s,
+    expr: (v, opts) => runProp(compileProp(v, { encode: opts?.encode === true }), {
+      state: s.store.snapshot(), env: { locale: "en-US", now: 1_700_000_000_000 },
+    }),
+  };
+}
+
+test("a rule's own example works: setState value { $: ... } becomes the value, not the object", () => {
+  // SPEC 2.4: { kind: "setState", path: "now", value: { "$": "now()" } }. Without this the OBJECT was stored.
+  const s = withKernel({ busy: true });
+  assert.strictEqual(resolveValue({ $: "now()" }, s), 1_700_000_000_000);
+  assert.strictEqual(resolveValue({ $: "state.busy ? 0.4 : 1" }, s), 0.4);
+  // And inside a body, beside the references that always worked.
+  assert.deepEqual(
+    resolveValue({ when: { $: "now()" }, what: "$state.busy" }, s),
+    { when: 1_700_000_000_000, what: true },
+  );
+});
+
+test("a $t path has its holes encoded, and one that climbs is refused rather than sent", () => {
+  const s = withKernel({ note: { id: "7" }, bad: { id: "../admin" } });
+  // SPEC 2.2's own example. Every hole is encoded, so a value cannot add a path segment of its own.
+  assert.strictEqual(resolveValue({ $t: "/v1/notes/{{ state.note.id }}" }, s, { encode: true }), "/v1/notes/7");
+  assert.strictEqual(networkPathOk("/v1/notes/7"), true);
+  // And a value that was trying to climb does not become a call at all: the encoded dots are read back by the
+  // path rules, which refuse it — so `callPath` answers null and the action's own onError runs.
+  const climbed = resolveValue({ $t: "/v1/notes/{{ state.bad.id }}" }, s, { encode: true });
+  assert.strictEqual(climbed, "/v1/notes/%2E%2E%2Fadmin");
+  assert.strictEqual(networkPathOk(climbed), false, "SPEC 5.1: a path never contains '..'");
+  assert.strictEqual(networkPathOk("/v1/notes/../admin"), false);
+});
+
+test("a toast's words can be a $t, and fillText hands back the text", () => {
+  const s = withKernel({ count: 3 });
+  assert.strictEqual(fillText({ $t: "{{ state.count }} left" }, s), "3 left");
+});
+
+test("a screen that did not ask for `expr` has no kernel at all, so the object is left as it is", () => {
+  // The hook is absent on every screen written before vocab 2, which is what keeps them exactly as they were.
+  const s = scope({ busy: true });
+  assert.deepEqual(resolveValue({ $: "now()" }, s), { $: "now()" });
 });

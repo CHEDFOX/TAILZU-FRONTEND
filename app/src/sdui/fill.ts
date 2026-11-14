@@ -9,6 +9,7 @@
  * (fill.test.ts); actions.ts is the only caller.
  */
 import type { Store } from "./state";
+import { isEvaluable } from "./kernel/text.ts";
 
 /** What a reference is read from. actions.ts's Ctx is one. */
 export interface Scope {
@@ -16,6 +17,18 @@ export interface Scope {
   flags: Record<string, any>;
   labels: Record<string, string>;
   event?: any;
+  /**
+   * VOCAB 2 INSIDE AN ACTION (pure/SPEC.md 2.2, 2.4).
+   *
+   * A rule's own example is `do: { kind: "setState", path: "now", value: { "$": "now()" } }`, and the value
+   * reached the store as that object: the references below are the only thing that was ever filled in, and an
+   * expression is not a reference. `callEndpoint.path: { "$t": … }` was worse — a path that is not a string
+   * threw, so the call was never made at all.
+   *
+   * actions.ts puts the kernel here, and only for a screen that asked for `expr`; absent everywhere else, so an
+   * action on a vocab-1 screen is filled exactly as it always was.
+   */
+  expr?: (value: unknown, opts?: { encode?: boolean }) => unknown;
 }
 
 /**
@@ -32,8 +45,8 @@ export interface Scope {
  */
 const ESCAPED = "\\$";
 
-/** Resolve "$state.x" / "$event" / "$flags.x" placeholders inside any value. */
-export function resolveValue(value: any, ctx: Scope): any {
+/** Resolve "$state.x" / "$event" / "$flags.x" placeholders — and `{ $ }` / `{ $t }` — inside any value. */
+export function resolveValue(value: any, ctx: Scope, opts?: { encode?: boolean }): any {
   // An escaped reference is the characters themselves, not a reference: "\$state.x" is the text "$state.x".
   if (typeof value === "string" && value.startsWith(ESCAPED)) return value.slice(1);
   if (typeof value === "string" && value.startsWith("$")) {
@@ -43,10 +56,12 @@ export function resolveValue(value: any, ctx: Scope): any {
     if (value.startsWith("$flags.")) return ctx.flags[value.slice("$flags.".length)];
     return value;
   }
-  if (Array.isArray(value)) return value.map((v) => resolveValue(v, ctx));
+  // The kernel's two shapes, worked out whole: nothing inside one is a reference to fill in afterwards.
+  if (ctx.expr && isEvaluable(value)) return ctx.expr(value, opts);
+  if (Array.isArray(value)) return value.map((v) => resolveValue(v, ctx, opts));
   if (value && typeof value === "object") {
     const out: Record<string, any> = {};
-    for (const k of Object.keys(value)) out[k] = resolveValue(value[k], ctx);
+    for (const k of Object.keys(value)) out[k] = resolveValue(value[k], ctx, opts);
     return out;
   }
   return value;
@@ -64,7 +79,8 @@ export function resolveValue(value: any, ctx: Scope): any {
  */
 export function fillText(value: any, ctx: Scope, opts?: { encode?: boolean }): string {
   if (typeof value !== "string") {
-    const v = resolveValue(value, ctx);
+    // `opts` rides along, so the holes in a `{ $t }` URL are encoded exactly as the holes in a literal one are.
+    const v = resolveValue(value, ctx, opts);
     return v == null ? "" : typeof v === "string" ? v : String(v);
   }
   if (value.startsWith("@")) return ctx.labels[value.slice(1)] ?? "";

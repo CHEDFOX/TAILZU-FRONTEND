@@ -4,7 +4,10 @@
 // and a rule that is only live while its node is visible stops when the node goes.
 import test from "node:test";
 import assert from "node:assert";
-import { RulesHost, type RulesWorld } from "./rulesHost.ts";
+import {
+  RulesHost, claimRules, releaseRules, rulesKey, type RuleBudget, type RulesWorld,
+} from "./rulesHost.ts";
+import { LIMITS } from "../kernel/limits.ts";
 import { compileRules } from "../kernel/rules.ts";
 
 /** A clock and a timer the test moves by hand. */
@@ -116,4 +119,48 @@ test("an action that writes the thing the rule reads cannot nest passes for ever
   host.pass();
   assert.ok(w.fired.length <= 2, `the edge holds and the stack does not grow: ${w.fired.length}`);
   host.stop();
+});
+
+// ---------------------------------------------------------------------------
+// THE SCREEN'S OWN CAPS, AND WHAT COUNTS AS THE SAME RULES (pure/SPEC.md 5.1, 2.4).
+
+test("the same rules written twice are the same rules, so a quiet reload does not fire them again", () => {
+  const json = '[{"id":"go","when":{"expr":"state.ready"},"do":{"kind":"navigate"},"once":true}]';
+  const first = JSON.parse(json) as unknown;
+  const again = JSON.parse(json) as unknown;
+  assert.notStrictEqual(first, again, "a reload really does hand over a new object");
+  assert.strictEqual(rulesKey(first), rulesKey(again), "and they are one set of rules, not two");
+  assert.notStrictEqual(rulesKey(first), rulesKey([]), "different rules are different");
+
+  // What that identity was costing: a once-only rule, rebuilt, fires a second time.
+  const w = world({ ready: true });
+  const made = compileRules(first);
+  const host1 = new RulesHost(made.rules, w);
+  host1.pass();
+  assert.strictEqual(w.fired.length, 1);
+  host1.stop();
+  const host2 = new RulesHost(compileRules(again).rules, w);
+  host2.pass();
+  assert.strictEqual(w.fired.length, 2, "which is the toast, or the navigate, happening twice");
+  host2.stop();
+});
+
+test("rules and timers are capped per SCREEN, not per call, and given back when a row goes", () => {
+  const budget: RuleBudget = { rules: 0, timers: 0 };
+  const timer = compileRules([{ id: "t", every: 1000, do: { kind: "log", message: "x" } }]).rules;
+  assert.strictEqual(timer.length, 1);
+  // Four rows, each with its own timer, is the screen's four.
+  const claims = [0, 1, 2, 3].map(() => claimRules(timer, budget));
+  assert.strictEqual(budget.timers, LIMITS.timers);
+  for (const c of claims) assert.strictEqual(c.kept.length, 1);
+  // The fifth row gets none, and is told.
+  const fifth = claimRules(timer, budget);
+  assert.strictEqual(fifth.kept.length, 0);
+  assert.strictEqual(fifth.dropped, 1);
+  // A row that goes hands its share back.
+  releaseRules(claims[0].kept, budget);
+  assert.strictEqual(budget.timers, LIMITS.timers - 1);
+  assert.strictEqual(claimRules(timer, budget).kept.length, 1);
+  // And with no budget at all (a row drawn outside a screen, a test) the kernel's per-call caps still hold.
+  assert.strictEqual(claimRules(timer, null).kept.length, 1);
 });

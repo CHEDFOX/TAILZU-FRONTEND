@@ -13,6 +13,64 @@ import { RuleMachine, type CompiledRule, driveRules, type RuleHost } from "../ke
 import { LIMITS } from "../kernel/index.ts";
 import type { Scope } from "../kernel/index.ts";
 
+/**
+ * ONE SCREEN'S ALLOWANCE OF RULES AND TIMERS (pure/SPEC.md 5.1: 32 rules, 4 timers PER SCREEN).
+ *
+ * `compileRules` counts within one call, and the renderer compiles a set per NODE — so a list of fifty rows with
+ * a timer each had fifty timers on one screen, which is the measurement the limit exists to prevent. This is the
+ * shared count: mutable on purpose, claimed as each node mounts and given back when it goes.
+ */
+export interface RuleBudget {
+  rules: number;
+  timers: number;
+}
+
+const isTimer = (r: CompiledRule): boolean => r.kind === "every" || r.kind === "after";
+
+/** The rules a caller may really have, in order, given what the screen has already handed out. */
+export function claimRules(
+  rules: readonly CompiledRule[], budget: RuleBudget | null,
+): { kept: CompiledRule[]; dropped: number } {
+  if (!budget) return { kept: [...rules], dropped: 0 };
+  const kept: CompiledRule[] = [];
+  let dropped = 0;
+  for (const r of rules) {
+    const timer = isTimer(r);
+    if (budget.rules >= LIMITS.rules || (timer && budget.timers >= LIMITS.timers)) { dropped += 1; continue; }
+    budget.rules += 1;
+    if (timer) budget.timers += 1;
+    kept.push(r);
+  }
+  return { kept, dropped };
+}
+
+/** Give back what a caller claimed, so walking through a screen's rows does not use the screen up. */
+export function releaseRules(kept: readonly CompiledRule[], budget: RuleBudget | null): void {
+  if (!budget) return;
+  for (const r of kept) {
+    budget.rules = Math.max(0, budget.rules - 1);
+    if (isTimer(r)) budget.timers = Math.max(0, budget.timers - 1);
+  }
+}
+
+/**
+ * THE SAME RULES, SAID THE SAME WAY (SPEC 2.4).
+ *
+ * A quiet live reload keeps the screen mounted and hands it a NEW COPY of the very same JSON. Keying the compile
+ * on the identity of that object rebuilt the machine, and a rebuilt machine has fired nothing — so every
+ * `once: true` rule fired again, and a screen that navigates or toasts on arrival did it once per reload. What a
+ * set of rules IS, is what it says.
+ */
+export function rulesKey(raw: unknown): string {
+  try {
+    return JSON.stringify(raw) ?? "";
+  } catch {
+    // Something that will not stringify (a cycle) cannot be compared, so it counts as new — which is what the
+    // identity key did for everything.
+    return `?${Date.now()}`;
+  }
+}
+
 /** What the host needs from the world around it. */
 export interface RulesWorld {
   now(): number;

@@ -105,6 +105,14 @@ export function buildCapabilities() {
      * down. It never means "not built yet" — the components list above is what says that.
      */
     off: deviceOff(),
+    /**
+     * ONE APP CARD BEFORE EVERY SYSTEM PROMPT (pure/SPEC.md 3.4 point 4; Apple 5.1.1(iv)).
+     *
+     * The server sets `primed: true` on a `requestPermission` its own Continue button fired; anything else shows
+     * the app's own card first, whatever tree was sent. Declared so the server's lint can rely on it rather than
+     * hope for it: a player that says nothing here has no card of its own, and the server must send one.
+     */
+    primed: true,
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
     device: {

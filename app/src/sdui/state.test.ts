@@ -24,3 +24,10 @@ test("ordinary paths still read and write", () => {
   assert.equal(s.get("x.y.z"), "deep");
   assert.equal(s.get(""), undefined);
 });
+
+test("a path that is not a string reads as nothing, never a throw", () => {
+  const s = new Store({ who: "Blip" });
+  // `bind: { content: { $: "state.who" } }` used to arrive here as that object (SPEC 2.2, bind by expression).
+  assert.strictEqual(s.get({ $: "state.who" } as unknown as string), undefined);
+  assert.strictEqual(s.get("who"), "Blip");
+});

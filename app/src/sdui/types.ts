@@ -863,6 +863,13 @@ export type ActionSpec =
       progressInto?: string;
       retry?: unknown;
       queue?: "outbox";
+      /**
+       * What the outbox SHOWS for a queued write, since the person has to be able to see what is waiting
+       * (offline/OfflineScreen.tsx). Without one the row would have no words at all, so a queued call with no
+       * label falls back to the catalog's "Waiting to send".
+       */
+      queueLabel?: string;
+      queueSub?: string;
       cache?: unknown;
       optimistic?: { path: string; value: unknown };
     }

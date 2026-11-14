@@ -12,6 +12,8 @@ import { pageScrolled, pageTouched } from "./pageBus";
 import { publishScroll, useScrollInto } from "../motion/scroll";
 import { ScreenScrollerContext } from "./v3Host";
 import { screenListPlan } from "./listCore";
+// The one thing the hand-off has to ask: is this screen's List going to draw at all (SPEC 5.3)?
+import { nodeOff } from "../safety";
 
 /**
  * HOW TALL ONE SCREENFUL ACTUALLY IS.
@@ -213,16 +215,31 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   // A FlatList inside a ScrollView is a nested VirtualizedList, and React Native turns windowing off — so the
   // one screen most likely to need it loses it. The List becomes the screen's scroller instead: the nodes above
   // it are its header, the nodes below are its footer, and it takes the Screen's padding, background, its
-  // `startAtEnd` and its scroll offset. The children are drawn in the same order as `node.children`, so the
-  // plan's indices address them directly.
-  const listPlan = screenListPlan(node?.children);
+  // `startAtEnd` and its scroll offset.
+  //
+  // ONLY WHEN THE LIST IS REALLY GOING TO DRAW. The plan used to be made from the child's TYPE alone, so a
+  // Screen gave its scroll away to a List that was never drawn — a screen with a List but no `list` in its
+  // `needs`, one under `sdui.off: ["List"]` (the SPEC 5.3 example), one in safe mode. The List drew its
+  // fallback, the header and the footer went into a context nobody read, and nothing scrolled: half a screen,
+  // which is the one answer the fail-safe rules forbid.
+  //
+  // AND THE INDEXES ARE THE NODE'S OWN CHILDREN. A backdrop blur (paint, `style.blur` on the Screen) is drawn
+  // as one more child in front of them, which shifted every index by one — the header became the blur and the
+  // List became the first real node. The blur is taken out here and kept at the back of the header, which is
+  // where it belongs anyway.
+  const canList = !!ctx?.blocks?.includes("list") && !nodeOff("List");
+  const listPlan = canList ? screenListPlan(node?.children) : null;
   if (listPlan) {
-    const kids = React.Children.toArray(children);
+    const all = React.Children.toArray(children);
+    const isBlur = (k: React.ReactNode): boolean =>
+      React.isValidElement(k) && typeof k.key === "string" && k.key.includes("__blur");
+    const blurs = all.filter(isBlur);
+    const kids = all.filter((k) => !isBlur(k));
     return (
       <ScreenViewport.Provider value={vh}>
         <ScreenScrollerContext.Provider
           value={{
-            header: listPlan.header.map((i) => kids[i]),
+            header: [...blurs, ...listPlan.header.map((i) => kids[i])],
             footer: listPlan.footer.map((i) => kids[i]),
             contentStyle,
             backgroundColor: backgroundColor ?? theme.color.bg,

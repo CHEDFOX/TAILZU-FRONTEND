@@ -12,7 +12,11 @@ export function getPath(obj: any, path: string): any {
   // ActionSheets rendered permanently OPEN, Switches read ON, and Sliders/
   // SearchFields got the object (NaN / "[object Object]"). undefined lets each
   // component's `?? default` fall through correctly.
-  if (!path) return undefined;
+  //
+  // AND A PATH IS A STRING. `bind` by expression (SPEC 2.2) put an object here — `path.split` threw a
+  // TypeError, the node went, and it was reported as the component's fault. The renderer resolves those itself
+  // now; this is the floor under it, because a path is data and data is whatever the server sent.
+  if (!path || typeof path !== "string") return undefined;
   return path.split(".").reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 

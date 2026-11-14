@@ -11,6 +11,7 @@ import { logMetaEvents } from "../../telemetry/meta";
 import { post, withRetry } from "./http";
 import { buildCapabilities } from "./capabilities";
 import { screenCache } from "./screens";
+import { clearLocal } from "../local";
 
 /** The last bootstrap's key on disk (the persisted cache is described in screens.ts). */
 const BOOT_KEY = (base: string) => `tulmi.cache.boot:${base}`;
@@ -144,6 +145,13 @@ export function bootstrapIsFresh(b: Pick<BootstrapResponse, "cacheTtlSeconds"> |
 export async function forgetAccountData(): Promise<void> {
   screenCache.clear();
   lastBootstrapAt = 0;
+  // WHAT THIS PHONE REMEMBERED FOR THIS PERSON (pure/SPEC.md 2.9, 5.1: `local` is cleared on sign-out).
+  //
+  // The `signOut` action cleared it, and that is only one of the ways a session ends: a revoked session, an
+  // account deleted, a sign-out from another device all arrive as SIGNED_OUT, which runs this and not that — so
+  // the next person on the phone was handed the last one's drafts and choices. Here it covers every path.
+  // (The cached answers of their calls are already dropped by endpoint.ts on the same event.)
+  try { clearLocal(); } catch { /* nothing kept is worth failing a sign-out for */ }
   setKeyboardCredentials(await getBaseUrl().catch(() => DEFAULT_BASE_URL), "");
   setKeyboardDictionary([]);
   setWidgetMonth(null);

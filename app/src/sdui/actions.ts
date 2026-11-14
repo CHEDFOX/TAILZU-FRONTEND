@@ -54,8 +54,11 @@ import { speakLine } from "./voice/speech";
 import { locationGranted, locationRequest, runLocateArea } from "../device/locate";
 // Vocab 2 (pure/SPEC.md 2.2, 2.9, 2.10): the kernel's condition shape, the phone's own values, and the options
 // `callEndpoint` gained. Each is reached only by an action that asks for it, so a screen that does not pays nothing.
-import { tryCompileExpr } from "./kernel/index.ts";
+import { LIMITS, compileProp, isEvaluable, networkPathOk, runProp, tryCompileExpr } from "./kernel/index.ts";
+import type { CompiledProp } from "./kernel/index.ts";
 import { scopeOf } from "./blocks/scope";
+import { permCaps } from "../device/permCaps";
+import { LOCATION_CAPABILITY } from "./types";
 import { clearLocal, removeLocal, setLocal } from "./local";
 import { applyOptimistic, progressSink } from "./client/endpointCore";
 import type { CallOptions } from "./client/endpointCore";
@@ -118,6 +121,50 @@ export interface Ctx {
    * here so this file does not have to import a block it only passes through.
    */
   hosts?: { motion?: unknown; gesture?: unknown };
+  /**
+   * WHAT THIS SCREEN MAY SPEND (pure/SPEC.md 5.1): the expression and ops budget `ScreenBudget` keeps. Made once
+   * per screen by ScreenTree; typed loosely here so this file does not import the renderer's glue.
+   */
+  budget?: unknown;
+  /**
+   * HOW DEEP ONE ACTION HAS CHAINED INTO ANOTHER (SPEC 5.1: at most 16). `runAction` puts the next number here
+   * before it runs anything, so every `onSuccess`, `sequence` and `condition` under it carries the count and a
+   * chain that points at itself stops instead of running out of stack.
+   */
+  depth?: number;
+  /** The kernel, for `{ $ }` and `{ $t }` inside an action's own values (fill.ts). Set by `runAction`. */
+  expr?: (value: unknown, opts?: { encode?: boolean }) => unknown;
+}
+
+/**
+ * ONE EXPRESSION INSIDE AN ACTION (pure/SPEC.md 2.2), compiled once per source string.
+ *
+ * A rule's `value: { "$": "now()" }` and a call's `path: { "$t": "/v1/notes/{{ state.note.id }}" }` are the
+ * SPEC's own examples, and neither worked: `resolveValue` only ever rewrote the `$state.` references, so the
+ * object itself was stored, and a path that was not a string threw before the call was made.
+ *
+ * Small and bounded: a screen has a handful of action expressions, not one per row.
+ */
+const actionExprs = new Map<string, CompiledProp | null>();
+
+function actionExpr(value: unknown, ctx: Ctx, opts?: { encode?: boolean }): unknown {
+  const src = JSON.stringify(value) + (opts?.encode ? "#e" : "");
+  let compiled = actionExprs.get(src);
+  if (compiled === undefined) {
+    try { compiled = compileProp(value, { encode: opts?.encode === true }); } catch { compiled = null; }
+    if (actionExprs.size > 128) actionExprs.clear();
+    actionExprs.set(src, compiled);
+  }
+  if (!compiled) {
+    try { noteBadNode("action:expr"); } catch { /* reporting is never the next error */ }
+    return undefined;
+  }
+  try {
+    return runProp(compiled, scopeOf(ctx));
+  } catch {
+    try { noteBadNode("action:expr"); } catch { /* ignore */ }
+    return undefined;
+  }
 }
 
 /**
@@ -147,13 +194,21 @@ function elsewhere(ctx: Ctx): boolean {
 
 export function evalCondition(cond: Condition | { expr: string } | undefined, ctx: Ctx): boolean {
   if (!cond) return true;
-  // The kernel's own condition shape (SPEC 2.2), wherever a Condition was expected.
-  if ("expr" in cond) return evalAnyCondition(cond, ctx);
   // A malformed condition from the backend (e.g. `{ in: ["x"] }` missing its
   // array operand → `undefined.includes`) is evaluated at RENDER time inside
   // RenderNode. An uncaught throw there unwinds to the root and blanks the
   // whole screen, so any parse failure resolves to `false` (node hides) instead.
   try {
+    // THE KERNEL'S OWN CONDITION SHAPE (SPEC 2.2), wherever a Condition was expected — INSIDE the try, and only
+    // for a screen that asked for `expr`.
+    //
+    // `"expr" in cond` sat outside it, so `visibleIf: true`, or a condition the server sent as a string, threw a
+    // TypeError where the old code caught it and hid the node: in render that reached NodeBoundary, and in the
+    // sign-in gate it dropped the whole tree to the native screen. And it ran the evaluator for a screen that
+    // never asked for the block, which "every block is OFF unless needed" forbids (SPEC 2.0 principle 2).
+    if (typeof cond === "object" && !Array.isArray(cond) && "expr" in cond) {
+      return ctx.blocks?.includes("expr") ? evalAnyCondition(cond, ctx) : true;
+    }
     if ("eq" in cond) return resolveValue(`$state.${cond.eq[0]}`, ctx) === cond.eq[1];
     if ("neq" in cond) return resolveValue(`$state.${cond.neq[0]}`, ctx) !== cond.neq[1];
     if ("gt" in cond) return Number(resolveValue(`$state.${cond.gt[0]}`, ctx)) > cond.gt[1];
@@ -276,6 +331,31 @@ async function getCameraPermission(): Promise<{ granted: boolean }> {
  * only maps names onto names and fills in the two pieces that need the screen: where progress is written, and
  * the optimistic write to put back if it fails.
  */
+/**
+ * THE PATH AN ACTION NAMES, FILLED IN AND CHECKED (pure/SPEC.md 2.2, 5.1).
+ *
+ * Three ways in, one way out: today's `"/v1/history/$state.item.id"` tokens, the kernel's `{ "$t": … }` with its
+ * holes encoded, and a plain literal. Null means it may not be called — which is the honest answer for a path
+ * that came out with a scheme, a host, `..` or no `/v1/` at all, however it was spelled.
+ */
+function callPath(raw: unknown, ctx: Ctx): string | null {
+  let path: unknown = raw;
+  if (isEvaluable(raw)) {
+    if (!ctx.blocks?.includes("expr")) return null;
+    path = actionExpr(raw, ctx, { encode: true });
+  } else if (typeof raw === "string" && raw.includes("$state.")) {
+    path = raw.replace(/\$state\.[A-Za-z0-9_.]+/g, (m) => {
+      const v = ctx.store.get(m.slice("$state.".length));
+      return v == null ? "" : encodeURIComponent(String(v));
+    });
+  }
+  if (typeof path !== "string" || !path) return null;
+  // A path the server wrote by hand and has always sent is left alone; only a path something was PUT INTO is
+  // held to the full rule, so this cannot refuse a call that works today.
+  if (path !== raw && !networkPathOk(path)) return null;
+  return path;
+}
+
 function callOptions(
   action: Extract<ActionSpec, { kind: "callEndpoint" }>,
   ctx: Ctx,
@@ -298,6 +378,50 @@ function callOptions(
   return { call, undo, sink };
 }
 
+/**
+ * AN ACTION THIS SCREEN MAY NOT RUN (pure/SPEC.md 2.0 principle 2, 5.3).
+ *
+ * Running an action is this bundle's promise; whether a SCREEN may use one belongs to the block it came from.
+ * A screen that did not name the block — or one whose block a kill switch turned off — gets the action's own
+ * `onError`, which is where the server says what to do instead, and the server hears what it sent.
+ */
+/**
+ * IS THERE LOCATION IN THIS BINARY AT ALL (perms/SPEC.md 5.2; pure/SPEC.md 3.4 point 5)?
+ *
+ * One JS check of the module's presence, the same one the server reads as `Location1`. Without it iOS has no
+ * `locationAsk` to call and an older Android binary has no coarse permission in its manifest, so both answer
+ * "denied" or "blocked" for something that was never built — and a screen then offers Settings for a switch that
+ * does not exist.
+ */
+const hasLocation = (): boolean => permCaps().includes(LOCATION_CAPABILITY);
+
+async function refuseBlock(block: string, action: unknown, ctx: Ctx): Promise<void> {
+  try { noteBadNode(`block:${block}`); } catch { /* reporting is never the next error */ }
+  ctx.store.set("lastError", { reason: `${block} is not on for this screen` });
+  await runAction((action as { onError?: ActionRef }).onError, ctx);
+}
+
+/**
+ * THE APP'S OWN CARD BEFORE EVERY SYSTEM PROMPT (pure/SPEC.md 3.4 point 4; Apple 5.1.1(iv), task #113).
+ *
+ * The server sets `primed: true` on a `requestPermission` that its own Continue button fired, and lint refuses
+ * `primed: true` anywhere else. Everything else — a construction written in a hurry, a rule, a gesture — has to
+ * be shown the app's card first, whatever tree the server sent. "Continue" and nothing else: an alert with a
+ * "Not now" beside it is the exact shape the guideline forbids.
+ */
+function primedCard(permission: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const once = (v: boolean) => { if (!done) { done = true; resolve(v); } };
+    Alert.alert(
+      txt(`perm.${permission}.title`, txt("perm.card.title", "One permission first")),
+      txt(`perm.${permission}.body`, txt("perm.card.body", "The next screen is your phone asking. Nothing is used until you allow it.")),
+      [{ text: txt("perm.card.continue", "Continue"), onPress: () => once(true) }],
+      { cancelable: false, onDismiss: () => once(false) },
+    );
+  });
+}
+
 /** What a media action needs of the screen that ran it; a follow-up runs with `event` as its $event. */
 function mediaIO(ctx: Ctx): MediaIO {
   return {
@@ -308,10 +432,28 @@ function mediaIO(ctx: Ctx): MediaIO {
   };
 }
 
-export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<void> {
+export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise<void> {
   if (!ref) return;
-  const action = spec(ref, ctx);
+  const action = spec(ref, outer);
   if (!action) return;
+
+  // HOW DEEP, AND WHAT THE KERNEL MAY DO HERE (pure/SPEC.md 5.1, 2.2).
+  //
+  // One object, made once, and every nested `runAction` below passes it on — so the depth counts itself and a
+  // chain of sixteen is the end of it (an action that runs itself used to run until the stack gave out). The
+  // kernel is put in the same place, and only for a screen that asked for `expr`: `fill.ts` then works out a
+  // `{ $ }` or `{ $t }` wherever an action carries a value, which is every example in SPEC 2.2 and 2.4.
+  const depth = typeof outer.depth === "number" ? outer.depth : 0;
+  if (depth >= LIMITS.actionDepth) {
+    try { noteBadNode(`action:${LIMITS.actionDepth} deep`); } catch { /* ignore */ }
+    return;
+  }
+  const wantsExpr = !outer.expr && !!outer.blocks?.includes("expr");
+  const ctx: Ctx = {
+    ...outer,
+    depth: depth + 1,
+    ...(wantsExpr ? { expr: (v: unknown, o?: { encode?: boolean }) => actionExpr(v, outer, o) } : null),
+  };
 
   switch (action.kind) {
     // ------------------------------------------------------------------- nav
@@ -388,16 +530,43 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // list row that meant deleting the row hit /v1/history/$state.item.id
         // and 404'd. Tokens run to the first character that cannot be part of a
         // path segment.
-        const path = action.path.includes("$state.")
-          ? action.path.replace(/\$state\.[A-Za-z0-9_.]+/g, (m) => {
-              const v = ctx.store.get(m.slice("$state.".length));
-              return v == null ? "" : encodeURIComponent(String(v));
-            })
-          : action.path;
+        //
+        // AND A PATH CAN BE AN EXPRESSION (SPEC 2.2): `path: { "$t": "/v1/notes/{{ state.note.id }}" }`, with
+        // every hole encoded. `action.path.includes` on an object threw, so the SPEC's own example never made a
+        // call at all; and whichever way it was written the result is checked before it is sent, so a filled
+        // value holding ".." or a host cannot climb out of our API (SPEC 5.1, network).
+        const path = callPath(action.path, ctx);
+        if (path === null) {
+          try { noteBadNode("action:path"); } catch { /* ignore */ }
+          await runAction(action.onError, ctx);
+          break;
+        }
         // THE OPTIONS THE DATA BLOCK ADDED (SPEC 2.10): multipart, progress, retry, cache and an optimistic
         // write. Built only when the action carries one of them and the screen has the block, so every call
         // written before this takes the same no-options path it always did.
-        const opts = ctx.blocks?.includes("data") ? callOptions(action, ctx) : null;
+        // KEPT UNTIL THE PHONE CAN SEND IT (SPEC 2.10: `queue: "outbox"`, "which subsumes Outbox").
+        //
+        // Nothing read `queue` at all, although the contract and the data block's own spec both promise it — so a
+        // write made with no connection was sent into nothing and lost, which is the one thing the outbox exists
+        // to stop. The outbox sends at once when there IS a connection and keeps the order when there is not.
+        // `onSuccess` runs on the keeping, not on the answer: a queued write has no answer yet, and `assignTo`
+        // therefore gets nothing.
+        const dataOn = ctx.blocks?.includes("data");
+        const queued = dataOn && (action as { queue?: unknown }).queue === "outbox"
+          && (action.method ?? "GET").toUpperCase() !== "GET";
+        if (queued) {
+          const a = action as { queueLabel?: unknown; queueSub?: unknown };
+          await runOutboxAction({
+            op: "add",
+            path,
+            body: body ?? {},
+            label: typeof a.queueLabel === "string" && a.queueLabel ? a.queueLabel : txt("outbox.queued", "Waiting to send"),
+            sub: typeof a.queueSub === "string" ? a.queueSub : "",
+          }, ctx);
+          await runAction(action.onSuccess, ctx);
+          break;
+        }
+        const opts = dataOn ? callOptions(action, ctx) : null;
         if (opts?.undo) undo = opts.undo;
         sink = opts?.sink ?? null;
         const res = await callEndpoint(action.method, path, body, opts?.call);
@@ -671,7 +840,12 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // WHAT THIS PHONE REMEMBERS (SPEC 2.9, the `local` block): a hint dismissed, a draft, a last choice. Its own
     // namespace, capped, never a secret, and cleared on sign-out — localCore.ts holds every one of those rules,
     // and says why when it refuses, which is what the action's own `onError` is told.
+    //
+    // AND ONLY FOR A SCREEN THAT NAMED THE BLOCK. The registry's own comment says "a screen that does not name
+    // the block never gets them", and nothing checked — so `sdui.off: ["local"]` stopped nothing, and a screen
+    // written before any of this could write to the phone's memory.
     case "local.set": {
+      if (!ctx.blocks?.includes("local")) { await refuseBlock("local", action, ctx); break; }
       const r = setLocal((action as { path: string }).path, resolveValue((action as { value?: unknown }).value, ctx));
       if (!r.ok) { ctx.store.set("lastError", { reason: r.reason }); await runAction((action as { onError?: ActionRef }).onError, ctx); }
       break;
@@ -685,6 +859,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       break;
     }
     case "local.remove": {
+      if (!ctx.blocks?.includes("local")) { await refuseBlock("local", action, ctx); break; }
       const r = removeLocal((action as { path: string }).path);
       if (!r.ok) { ctx.store.set("lastError", { reason: r.reason }); await runAction((action as { onError?: ActionRef }).onError, ctx); }
       break;
@@ -724,6 +899,12 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // the truth, and `onUnsupported` falls back to `onDenied`, so a screen that has not been taught the
         // difference behaves exactly as it does today.
         let unsupported = false;
+        // ONE APP CARD BEFORE THE SYSTEM PROMPT (SPEC 3.4 point 4). `primed: true` means the server's own card's
+        // Continue button fired this, so the card has already been shown; without it, ours is.
+        if ((action as { primed?: unknown }).primed !== true) {
+          const went = await primedCard(String(action.permission));
+          if (!went) break;
+        }
         switch (action.permission) {
           case "microphone": {
             const AudioMod = await import("expo-audio");
@@ -764,6 +945,12 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             unsupported = true;
             break;
           case "location": {
+            // NOT IN EVERY BINARY (SPEC 3.4 point 5). Without TulmiPerms.locationArea there is no location in
+            // this build at all: on iOS `ask()` answers "denied" because the module function is missing, and on
+            // an older Android binary the coarse permission is not in the manifest, so the request comes back
+            // never_ask_again — which reads as "blocked" and makes a screen offer Settings for a switch that
+            // does not exist. The capability is the honest test, and `unsupported` the honest answer.
+            if (!hasLocation()) { unsupported = true; break; }
             // While using the app only, approximate first (device/locate.ts). The coordinate never reaches JS.
             const r = await locationRequest();
             granted = r.granted;
@@ -814,7 +1001,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             if (Platform.OS === "android") { unsupported = true; break; }
             granted = (await MediaLibrary.getPermissionsAsync()).granted;
             break;
-          case "location": granted = await locationGranted(); break;
+          // The same third answer as requestPermission (SPEC 3.4 point 5): reading never prompts, and a "no"
+          // from a binary that has no location module at all is not a no — it is `unsupported`, so a screen says
+          // "this build cannot" instead of offering Settings for a switch that is not there.
+          case "location": granted = await locationGranted(); unsupported = !granted && !hasLocation(); break;
           // None is built in — see requestPermission for why.
           case "contacts":
           case "calendar":

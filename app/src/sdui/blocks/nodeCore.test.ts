@@ -4,7 +4,10 @@
 // words being evaluated, and a node re-rendering for a write it does not care about.
 import test from "node:test";
 import assert from "node:assert";
-import { compileNode, kernelScope, nodeReads, resolveInto, scopeFor, type BaseScope } from "./nodeCore.ts";
+import {
+  ScreenBudget, compileNode, kernelScope, nodeReads, resolveActionRef, resolveInto, scopeFor, type BaseScope,
+} from "./nodeCore.ts";
+import { LIMITS } from "../kernel/limits.ts";
 import { ARGS_KEY, ARGS_UP_KEY } from "../kernel/defs.ts";
 
 const base = (state: unknown, extra: Partial<BaseScope> = {}): BaseScope => ({
@@ -95,4 +98,90 @@ test("every root the kernel names is filled in, including where a gesture ended"
   assert.strictEqual(props.b, true);
   assert.strictEqual(props.d, 7);
   assert.strictEqual(props.e, 42);
+});
+
+// ---------------------------------------------------------------------------
+// WHAT HAPPENS WHEN AN EXPRESSION DOES NOT WORK (pure/SPEC.md 2.2, 5.1).
+
+test("an expression that will not compile leaves NOTHING in the prop, and says so", () => {
+  const c = compileNode({ type: "Text", props: { content: { $: "state.(" }, keep: "as written" } });
+  assert.ok(c.errors.length > 0, "the handshake has something to say");
+  const props: Record<string, unknown> = { content: { $: "state.(" }, keep: "as written" };
+  resolveInto(props, c.props, kernelScope(base({}), undefined));
+  assert.strictEqual(props.content, undefined, "never the { $ } object: a component would be asked to draw it");
+  assert.strictEqual(props.keep, "as written", "and the props that were never expressions are untouched");
+});
+
+test("an expression that throws while running leaves nothing either", () => {
+  // 8 KB is the cap on one built string (SPEC 5.1), so this one is refused as it runs, not as it compiles.
+  const c = compileNode({ type: "Text", props: { content: { $t: "{{ state.big }}" } } });
+  assert.strictEqual(c.errors.length, 0, "it compiles: only running it is too much");
+  const said: string[] = [];
+  const props: Record<string, unknown> = {};
+  resolveInto(props, c.props, kernelScope(base({ big: "x".repeat(9000) }), undefined), (w) => said.push(w));
+  assert.strictEqual(props.content, undefined);
+  assert.ok(said.length > 0, "and the server hears about it");
+});
+
+test("a node that reads the clock says so, so the renderer knows to tick", () => {
+  assert.strictEqual(compileNode({ type: "Text", props: { c: { $t: "{{ fmt.elapsed(state.t) }}" } } }).time, true);
+  assert.strictEqual(compileNode({ type: "Text", props: { c: { $: "now()" } } }).time, true);
+  assert.strictEqual(compileNode({ type: "Text", props: { c: { $: "state.t" } } }).time, false);
+});
+
+test("bind by expression is compiled as a VALUE; a bare string in bind stays a dot-path", () => {
+  const c = compileNode({ type: "Text", bind: { content: { $: "state.who" }, other: "some.path" } });
+  assert.deepStrictEqual(c.binds.map(([k]) => k), ["content"], "only the evaluable one");
+  assert.ok(c.deps.includes("state.who"));
+  const out = resolveInto({}, c.binds, kernelScope(base({ who: "Blip" }), undefined));
+  assert.strictEqual(out.content, "Blip");
+});
+
+test("a List's row-scoped props are left for the row, not worked out at the List", () => {
+  const list = compileNode({
+    type: "List",
+    props: { data: { $: "state.feed" }, sticky: { $: "item.kind == 'day'" }, item: { type: "Use", def: "row" } },
+  });
+  assert.deepStrictEqual(list.props.map(([k]) => k), ["data"], "sticky and item never reach the List itself");
+  const each = compileNode({ type: "Each", props: { data: { $: "state.rows" }, item: { type: "Use", def: "row" } } });
+  assert.deepStrictEqual(each.props.map(([k]) => k), ["data"]);
+  // Any other node keeps both: they are only row-scoped on a list.
+  const plain = compileNode({ type: "Stack", props: { sticky: { $: "1 == 1" } } });
+  assert.deepStrictEqual(plain.props.map(([k]) => k), ["sticky"]);
+});
+
+test("a screen may compile only so many expressions, and spend only so much per change", () => {
+  const budget = new ScreenBudget();
+  // Past the per-screen cap the prop is nothing, with a reason — not the object the server wrote.
+  for (let i = 0; i < LIMITS.exprPerScreen; i += 1) {
+    assert.strictEqual(compileNode({ type: "Text", props: { c: { $: `${i}` } } }, budget).errors.length, 0);
+  }
+  const over = compileNode({ type: "Text", props: { c: { $: "1" } } }, budget);
+  assert.ok(over.errors[0]?.includes("more than"), over.errors.join());
+  const props: Record<string, unknown> = { c: { $: "1" } };
+  resolveInto(props, over.props, kernelScope(base({}), undefined));
+  assert.strictEqual(props.c, undefined);
+
+  // And the ops: counted per change of the store, and started again by the next one.
+  const b2 = new ScreenBudget();
+  assert.strictEqual(b2.spend(1, LIMITS.opsPerChange), true);
+  assert.strictEqual(b2.spend(1, 1), false, "that change has had its 20,000");
+  assert.strictEqual(b2.firstRefusal(), true);
+  assert.strictEqual(b2.firstRefusal(), false, "said once, not twenty thousand times");
+  assert.strictEqual(b2.spend(2, 1), true, "the next change starts again");
+});
+
+test("a row's action can be the one its caller handed in ($ref), and cannot point at itself", () => {
+  const open = { kind: "navigate", screenId: "note" };
+  const scope = kernelScope(base({}), { item: { id: 1 }, argsStack: [{ onOpen: open }] });
+  assert.strictEqual(resolveActionRef({ $ref: "args.onOpen" }, scope), open);
+  assert.deepStrictEqual(resolveActionRef({ $ref: "item.id" }, scope), 1);
+  assert.strictEqual(resolveActionRef({ $ref: "args.nothing" }, scope), undefined);
+  assert.strictEqual(resolveActionRef({ $ref: "state.sneaky" }, scope), undefined, "only args and item");
+  // A ref that points at another ref is followed, but not for ever.
+  const loop: Record<string, unknown> = { $ref: "args.a" };
+  const deep = kernelScope(base({}), { argsStack: [{ a: loop }] });
+  assert.strictEqual(resolveActionRef(loop, deep), undefined);
+  // An ordinary action is handed straight back.
+  assert.strictEqual(resolveActionRef(open, scope), open);
 });

@@ -65,11 +65,26 @@ class Adapter implements BlockRegistry {
     specs.set(name, spec);
   }
 
-  /** data's and shell's shape. `nodes` are node types to draw; `helpers` are plain functions, never node types. */
+  /**
+   * data's and shell's shape — and they are NOT the same shape, which is the whole care here.
+   *
+   * The shell says `register(block, spec, nodes, helpers)`: a map of node types to draw, then plain functions.
+   * data says `register(block, spec, impl)`: plain functions in the third place, no node types at all. Taking
+   * data's third argument for node types put `bindSubscribeHost` and `subscribeEvent` in the node registry — so
+   * a screen could draw `{ "type": "bindSubscribeHost" }` and CALL one of them with a bag of props it chose,
+   * replacing the live socket's host. Server data must never reach an internal function (SPEC 2.0 principle 3).
+   *
+   * So a name becomes a node type only when the block's own spec DECLARES it as one, under `nodes`. The spec is
+   * the contract both sides read; a function the spec does not name as a node is an implementation helper and is
+   * kept out of the registry.
+   */
   register(block: string, spec: unknown, nodes?: Record<string, unknown>, _helpers?: Record<string, unknown>): void {
     specs.set(block, spec);
     if (!nodes) return;
+    const declared = (spec as { nodes?: Record<string, unknown> } | null | undefined)?.nodes;
+    if (!declared || typeof declared !== "object") return;
     for (const type of Object.keys(nodes)) {
+      if (!Object.prototype.hasOwnProperty.call(declared, type)) continue;
       const comp = nodes[type];
       if (typeof comp !== "function") continue;
       REGISTRY[type] = comp as (typeof REGISTRY)[string];

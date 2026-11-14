@@ -242,7 +242,11 @@
     "desktop.guide.showing": "Here",
     "desktop.guide.thinking": "Looking",
     "desktop.guide.yes": "Do it",
+    "desktop.input.less": "Less",
+    "desktop.input.more": "More",
+    "desktop.input.removeChip": "Remove {chip}",
     "desktop.input.slide": "Slide to confirm",
+    "desktop.input.stars": "{n} of {max}",
     "desktop.mast.unlimited": "Unlimited",
     "desktop.mast.words": "{used} / {of} words",
     "desktop.media.shotOff": "Screen Recording is off for X0 Bot, so pick a picture instead.",
@@ -533,6 +537,10 @@
     "offline.retryIn": "Trying again in {s}s",
     "offline.title": "You're offline",
     "outbox.notKept": "Couldn't keep that ask.",
+    "outbox.queued": "Waiting to send",
+    "perm.card.body": "The next screen is your phone asking. Nothing is used until you allow it.",
+    "perm.card.continue": "Continue",
+    "perm.card.title": "One permission first",
     "pullBot.checking": "Checking",
     "pullBot.failed": "Couldn't check. Try again.",
     "pullBot.fresh": "{n} new",
@@ -629,19 +637,6 @@
     "widget.month.wordsThisMonth": "Words this month"
   },
   "flags": {
-    "9": {
-      "min": 0,
-      "max": 5
-    },
-    "-2": {
-      "min": -5
-    },
-    "1.239": {
-      "decimals": 2
-    },
-    "1.5": {
-      "decimals": 0
-    },
     "ads.meta.enabled": true,
     "ads.meta.ios.enabled": false,
     "analytics.enabled": false,

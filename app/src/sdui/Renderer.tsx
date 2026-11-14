@@ -12,8 +12,8 @@
  *   - a node's own `rules` run while it is visible.
  * None of it costs a screen that states no `needs`: `ctx.blocks` is empty and every branch below is skipped.
  */
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Animated } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, AppState } from "react-native";
 import type { MotionSpec, Node, NodeEvent } from "./types";
 import { useStoreWatch } from "./state";
 import { REGISTRY } from "./components";
@@ -26,7 +26,10 @@ import { num, str } from "./knobs";
 import { gesturesOn, motionMode, nodeOff, noteBadNode, rulesOn } from "./safety";
 import { usesMotion, wrapMotion, type MotionHost } from "./motion";
 import { usesGesture, wrapGesture, type GestureHost } from "./gesture";
-import { NO_EXPRESSIONS, compileNode, kernelScope, resolveInto, scopeFor, type RenderScope } from "./blocks/nodeCore.ts";
+import {
+  NO_EXPRESSIONS, compileNode, kernelScope, resolveActionRef, resolveInto, scopeFor,
+  type OpsGuard, type RenderScope, type ScreenBudget,
+} from "./blocks/nodeCore.ts";
 import { baseScope, useFactsWatch } from "./blocks/scope";
 import { useRules } from "./blocks/useRules";
 import { blockForType } from "./blocks/registry";
@@ -109,8 +112,19 @@ class NodeBoundary extends React.Component<
   }
 }
 
-/** A node and everything under it, inside its own boundary. */
-export function RenderNode({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: RenderScope }) {
+/**
+ * A node and everything under it, inside its own boundary.
+ *
+ * MEMOISED, WHICH IS WHAT MAKES THE DEPENDENCY TRACKING REAL (SPEC 2.2). Every node used to be redrawn by its
+ * parent, and every real screen's root is a Screen or a Stack with no expression on it — so that root subscribed
+ * to every write, redrew, and took the whole tree with it. The tracking was measurable only on a node drawn at
+ * the root, which is not where nodes live. With this, a parent's redraw stops at a child whose `node`, `ctx` and
+ * `scope` are the same objects, and a live child is redrawn by its own subscription instead. A vocab-1 node still
+ * has a subscription with no paths (today's behaviour), so nothing that worked before becomes quieter.
+ */
+export const RenderNode = React.memo(function RenderNode(
+  { node, ctx, scope }: { node: Node; ctx: Ctx; scope?: RenderScope },
+) {
   // The boundary wraps the BODY rather than sitting inside it, so a throw in the body's own hooks — an onAppear
   // action, a style the theme cannot resolve — is caught too, not just one in the component it draws.
   return (
@@ -118,13 +132,53 @@ export function RenderNode({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?:
       <RenderNodeBody node={node} ctx={ctx} scope={scope} />
     </NodeBoundary>
   );
-}
+});
 
 /** True when this block is live on the screen being drawn. Empty `blocks` is a vocab-1 screen: nothing is live. */
 const on = (ctx: Ctx, block: string): boolean => !!ctx.blocks && ctx.blocks.includes(block);
 
-/** Every path this node reads: its expressions', its rules', and the dot-paths its `bind` names. */
-function depsOf(node: Node, exprDeps: readonly string[]): string[] {
+/**
+ * COMPONENTS WHOSE WHOLE ANSWER IS THEIR PROPS.
+ *
+ * A node may be redrawn only when a path it reads changes ONLY if everything about what it draws is in the props
+ * this render worked out. These are the ones that hold nothing else: no `store`, no `ctx`, no condition of their
+ * own. Every other type — `MentionField`, `VoiceButton`, `BotCard`, `Vanish`, the inputs, a `List` reading its
+ * own cursor — reads the store while it draws, so it keeps today's subscription (every write) and nothing of
+ * theirs becomes quieter. SPEC 2.2: "nothing that works today changes."
+ */
+const PURE_PROPS: ReadonlySet<string> = new Set([
+  "Text", "Stack", "Grid", "SafeArea", "SVG", "Image", "Button", "Scroll",
+  "Each", "Rise", "MorphOut", "PersonBot", "BlipSpot",
+]);
+
+/** True when a style holds a value that is decided by a condition, which is read live and not through deps. */
+function hasStyleConditional(style: Record<string, any> | undefined): boolean {
+  if (!style) return false;
+  for (const k of Object.keys(style)) {
+    const v = style[k];
+    if (v && typeof v === "object" && !Array.isArray(v) && ("then" in v || "else" in v)
+      && STYLE_COND_KEYS.some((c) => c in v)) return true;
+  }
+  return false;
+}
+
+/**
+ * Every path this node reads — or null, which means "redraw on any write", today's behaviour for every node.
+ *
+ * A deps list is a promise that NOTHING ELSE this node draws can change behind it. Three things break that
+ * promise, and each one hands back null instead:
+ *   - a legacy `visibleIf` (`{ truthy: "show" }`), which is worked out live against the store, not compiled;
+ *   - a style value decided by a condition (`{ truthy: "sel", then: 1, else: 0.3 }`), the same;
+ *   - a component that reads the store or the ctx while it draws (PURE_PROPS above).
+ * Before this, a node with one `{ $ }` prop and a legacy `visibleIf` stayed hidden for ever after the condition
+ * came true, because nothing told it to look again.
+ */
+function depsOf(node: Node, exprDeps: readonly string[]): string[] | null {
+  if (!PURE_PROPS.has(node.type)) return null;
+  const vis = node.visibleIf as unknown;
+  const kernelVis = !!vis && typeof vis === "object" && typeof (vis as { expr?: unknown }).expr === "string";
+  if (vis !== undefined && vis !== null && !kernelVis) return null;
+  if (hasStyleConditional(node.style as Record<string, any> | undefined)) return null;
   const out = [...exprDeps];
   if (node.bind) {
     for (const k of Object.keys(node.bind)) {
@@ -137,16 +191,42 @@ function depsOf(node: Node, exprDeps: readonly string[]): string[] {
   return out;
 }
 
+/**
+ * ONCE A SECOND, FOR A NODE THAT READS THE CLOCK (pure/SPEC.md 2.2: `now()`, `since()`, `fmt.elapsed`).
+ *
+ * The kernel puts `@time` in such a node's dependencies precisely so the renderer knows it has to come back —
+ * and nothing was coming back, so a call's running time showed the second it was drawn and that second for ever.
+ * Paused while the node is off screen and while the app is not in front (SPEC 2.4: nothing runs in the
+ * background). It is the same once-a-second tick `Text`'s own `useNow` already runs for `elapsed`.
+ */
+function useTick(on: boolean): void {
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => { if (!timer) timer = setInterval(() => force((n) => n + 1), 1000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    if (AppState.currentState !== "background") start();
+    const sub = AppState.addEventListener("change", (s) => (s === "active" ? start() : stop()));
+    return () => { stop(); sub.remove(); };
+  }, [on]);
+}
+
 function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: RenderScope }) {
   const theme = useTheme();
 
   // VOCAB 2, only where the screen asked for it. `compileNode` is cached on the node object, so a screen's tree
   // compiles once and every render after this is a lookup.
   const exprOn = on(ctx, "expr");
+  // The screen's own budget (SPEC 5.1: 600 expressions, 20,000 ops per change), made once per screen in
+  // ScreenTree and absent on a screen that asked for nothing.
+  const budget = ctx.budget as ScreenBudget | undefined;
   // A screen that did not ask for `expr` is not even looked at for one: its props are data, as they always were.
-  const compiled = exprOn ? compileNode(node) : NO_EXPRESSIONS;
+  const compiled = exprOn ? compileNode(node, budget) : NO_EXPRESSIONS;
   const live = compiled.live;
-  if (live && compiled.errors.length > 0) reportOnce(node, compiled.errors);
+  // Said whenever there is anything to say, not only for a node that is still live: a node whose ONE expression
+  // failed to compile is not live at all, and it was the one worth hearing about.
+  if (compiled.errors.length > 0) reportOnce(node, compiled.errors);
   const deps = useMemo(
     () => (live ? depsOf(node, compiled.deps) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,9 +234,30 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
   );
   // One watcher either way: null deps is exactly today's behaviour (re-render on any write), a list of paths is
   // the new one. The hook is always called, so a node that gains an expression cannot change the hook order.
-  useStoreWatch(ctx.store, deps);
+  const ver = useStoreWatch(ctx.store, deps);
   // `device.*` and `local.*` are not in the store, so they are watched separately — and only when read.
   useFactsWatch(deps);
+
+  // What this screen may still spend on this change of the store; absent for a screen with no budget.
+  const guard: OpsGuard | undefined = budget
+    ? (ops) => {
+      const ok = budget.spend(ver, ops);
+      if (!ok && budget.firstRefusal()) badValue(node)("too much work for one change");
+      return ok;
+    }
+    : undefined;
+
+  // THE SCOPE THIS NODE'S CHILDREN ARE DRAWN IN (a template's `$args`, worked out here).
+  //
+  // MEMOISED, because its identity is what every child's `React.memo` compares, and `scopeFor` allocates. The key
+  // is the store's version, which moves only when something this node reads has changed — so a redraw that came
+  // from somewhere else hands the children the very same object and stops there. Worked out before the early
+  // returns below, so the hook order never changes with what the node turns out to draw.
+  const kidScope = useMemo(
+    () => (live ? scopeFor(compiled, baseScope(ctx), scope, badValue(node), guard) : scope),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [live, compiled, scope, ctx, ver],
+  );
 
   // Node lifecycle: fire onAppear when this node becomes visible and
   // onDisappear when it stops being visible. Backend screens rely on this —
@@ -181,7 +282,7 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
   let visible = true;
   if (live && compiled.visible) {
     try {
-      visible = !!compiled.visible.run(kernelScope(baseScope(ctx), scope));
+      visible = !!compiled.visible.run(kernelScope(baseScope(ctx), kidScope));
     } catch {
       visible = false;
     }
@@ -224,13 +325,26 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
   nodeRef.current = node;
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
+  const scopeRef = useRef(kidScope);
+  scopeRef.current = kidScope;
   const fire = useCallback((event: NodeEvent, value?: any) => {
-    void runAction(nodeRef.current.on?.[event], { ...ctxRef.current, event: value });
+    const ctxNow = ctxRef.current;
+    let act: unknown = nodeRef.current.on?.[event];
+    // A TEMPLATE'S ROW FIRES ITS CALLER'S ACTION (SPEC 2.3): `on: { onPress: { $ref: "args.onOpen" } }`. Without
+    // this the row handed runAction an object with no `kind`, which reported `action:?` and did nothing — so the
+    // main use of a template, a list of rows that open what the screen says they open, could not work at all.
+    if (on(ctxNow, "defs") && act && typeof act === "object" && "$ref" in (act as object)) {
+      act = resolveActionRef(act, kernelScope(baseScope(ctxNow), scopeRef.current));
+    }
+    void runAction(act as never, { ...ctxNow, event: value });
   }, []);
+
+  // ONCE A SECOND while this node is on screen, if anything on it reads the clock (SPEC 2.2).
+  useTick(live && compiled.time && visible);
 
   // A NODE'S OWN RULES (SPEC 2.4), live only while the node is. Called unconditionally, and does nothing at all
   // when the node has none or the screen did not ask for `rules`.
-  useRules((node as { rules?: unknown }).rules, ctx, on(ctx, "rules") && rulesOn(), visible);
+  useRules((node as { rules?: unknown }).rules, ctx, on(ctx, "rules") && rulesOn(), visible, kidScope);
 
   if (!visible) return null;
 
@@ -282,11 +396,27 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
   // already in `props`, exactly as the server wrote it, which is how a note title that happens to read
   // "{{ state.token }}" draws as those characters. It runs AFTER the catalog pass, so a value an expression built
   // is never read back as an "@key", and BEFORE `bind`, which keeps its old last word.
-  const kScope = live ? kernelScope(baseScope(ctx), scope) : null;
-  if (kScope && compiled.props.length > 0) resolveInto(props, compiled.props, kScope, badValue(node));
+  // THE NODE'S OWN SCOPE IS THE ONE ITS FRAME MAKES. A template's root carries the `$args` the caller gave it
+  // (kidScope above), and SPEC 2.3's own example puts an expression on that very node — `args.bot.name` on the
+  // root, `{ $ref: "args.onOpen" }` in its `on`. Reading its props in the scope OUTSIDE the frame left both
+  // undefined, so a one-node row template drew nothing at all. For every node without a frame this is the same
+  // object as `scope`, so nothing else changes.
+  const kScope = live ? kernelScope(baseScope(ctx), kidScope) : null;
+  if (kScope && compiled.props.length > 0) resolveInto(props, compiled.props, kScope, badValue(node), guard);
   if (node.bind) {
+    // `bind` by expression (SPEC 2.2): a `{ "$": … }` there is a VALUE, not a path — it used to be handed to
+    // `store.get`, where `path.split` threw and took the node with it. A bare string is still a dot-path.
+    const byExpr = compiled.binds.length > 0 ? new Map(compiled.binds) : null;
+    const bound = byExpr && kScope ? resolveInto({}, compiled.binds, kScope, badValue(node), guard) : null;
     for (const k of Object.keys(node.bind)) {
-      const v = ctx.store.get(node.bind[k]);
+      if (byExpr?.has(k)) {
+        const v = bound?.[k];
+        if (v !== undefined) props[k] = v;
+        continue;
+      }
+      const path = node.bind[k];
+      if (typeof path !== "string" || !path) continue;
+      const v = ctx.store.get(path);
       if (v !== undefined) props[k] = v;
     }
   }
@@ -294,7 +424,7 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
   // The same for the style's own values, before the theme reads it.
   let styleSrc = node.style;
   if (kScope && compiled.style.length > 0) {
-    styleSrc = resolveInto({ ...(node.style ?? {}) }, compiled.style, kScope, badValue(node));
+    styleSrc = resolveInto({ ...(node.style ?? {}) }, compiled.style, kScope, badValue(node), guard);
   }
   // `paint` (B7) is the server's own style keys — gradients, shadows, filters, blend — and they are let through
   // only for a screen that asked for the block.
@@ -304,7 +434,6 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
 
   // Children are drawn in the scope this node makes: a template's `$args` worked out here, so a row reads its own
   // arguments (kernel defs.ts leaves the frames; nodeCore turns them into a scope).
-  const kidScope = live ? scopeFor(compiled, baseScope(ctx), scope, badValue(node)) : scope;
   const children = (node.children ?? []).map((child, i) => (
     <RenderNode key={i} node={child} ctx={ctx} scope={kidScope} />
   ));

@@ -83,6 +83,10 @@ function present(tree: React.ReactNode, spec: PresentSpec | undefined, back: () 
   }
   // `overlay` and `fade` are the screen itself, drawn where it always is; the difference is the transition the
   // shell plays, which is V5's to add. Drawing it plainly is the honest degrade until then.
+  //
+  // ONE SCREEN HOST, SO NOTHING IS DRAWN BEHIND A SHEET YET. A sheet or a modal sits over the app's own
+  // background rather than over the screen it came from: keeping the previous host mounted underneath is V5's,
+  // with the shell. The screen itself is whole either way, which is the part that matters here.
   return tree;
 }
 
@@ -267,6 +271,24 @@ export default function SduiApp() {
     return `${id}:{}`;
   }, [shown, stack]);
 
+  /**
+   * AND HOW IT COMES UP, FOUND THE SAME WAY (pure/SPEC.md 2.10, the `shell` block).
+   *
+   * This was read off the top of the stack, which is the one place it must not come from: the stack moves the
+   * instant a navigation starts, while `shown` above deliberately keeps drawing the PREVIOUS screen until the
+   * next fetch lands. So pushing an uncached screen with `presentation: "sheet"` wrapped the screen still on
+   * show in a sheet — the element type above ScreenHost changed, so the previous screen remounted inside it,
+   * lost everything it was holding and slid up the display. That is exactly the rebuild `shownKey` exists to
+   * prevent. Taken from the topmost entry that is really for the screen being drawn, the sheet arrives with the
+   * screen it belongs to.
+   */
+  const shownPresent = useMemo(() => {
+    const id = shown?.screenId ?? "";
+    if (!id) return undefined;
+    for (let i = stack.length - 1; i >= 0; i--) if (stack[i].screenId === id) return stack[i].present;
+    return undefined;
+  }, [shown, stack]);
+
   // Warm every reachable screen once up, and keep the cached ones fresh while in front (hooks/useScreenRefresh).
   useScreenRefresh({ phase, boot });
 
@@ -449,7 +471,7 @@ export default function SduiApp() {
               <ScreenHost
                 key={shownKey}
                 screen={shown} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />,
-              stack[stack.length - 1]?.present,
+              shownPresent,
               nav.back,
             )}
           </ThemeContext.Provider>

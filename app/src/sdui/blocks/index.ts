@@ -13,13 +13,14 @@
  */
 
 export { blocksForScreen, declaredBlocks, kernelFingerprint, missingForScreen, screenNeeds, updateTree } from "./blocksCore.ts";
-export { compileNode, kernelScope, nodeReads, resolveInto, scopeFor } from "./nodeCore.ts";
-export type { BaseScope, CompiledNode, RenderScope } from "./nodeCore.ts";
+export { ScreenBudget, compileNode, kernelScope, nodeReads, resolveActionRef, resolveInto, scopeFor } from "./nodeCore.ts";
+export type { BaseScope, CompiledNode, OpsGuard, RenderScope } from "./nodeCore.ts";
 export { RulesHost } from "./rulesHost.ts";
 export type { RulesWorld } from "./rulesHost.ts";
 export { appRuntime, clientBlocks, registeredNames } from "./declared.ts";
 export { blockForType, blockSpecs, blocksThatFailed, registeredBlocks, setupBlocks } from "./registry";
 export { baseScope, itemBool, scopeOf, useFactsWatch, watchFacts } from "./scope";
 export { StateMirror, makeGestureHost, makeMotionHost, makeShellHost, makeSubscribeHost, makeV3Host } from "./hosts";
-export { useRules } from "./useRules";
+export { RuleBudgetContext, makeRuleBudget, useRules } from "./useRules";
+export type { RuleBudget } from "./useRules";
 export { ScreenTree } from "./ScreenTree";

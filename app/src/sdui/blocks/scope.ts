@@ -37,13 +37,21 @@ function catalogText(labels: Record<string, string>): (key: string, vars?: Recor
   };
 }
 
-/** The roots a screen brings, as getters: nothing is read until an expression asks for it. */
+/**
+ * The roots a screen brings, as getters: nothing is read until an expression asks for it.
+ *
+ * `device` and `local` are their own BLOCKS (SPEC 2.9), so they are here only for a screen that said it needs
+ * them — which is also what `sdui.off: ["local"]` has to mean, because `clientBlocks` takes an off block out of
+ * what the screen is given. A screen that did not name them reads `undefined`, the same as a name the kernel
+ * does not know. `env` still has the locale, because that is the formatter's and not a fact a screen may read.
+ */
 export function baseScope(ctx: Ctx): BaseScope {
   const text = catalogText(ctx.labels ?? {});
+  const has = (block: string): boolean => !!ctx.blocks && ctx.blocks.includes(block);
   return {
     get state() { return ctx.store.snapshot(); },
-    get device() { return getDeviceFacts(); },
-    get local() { return allLocal(); },
+    get device() { return has("device") ? getDeviceFacts() : undefined; },
+    get local() { return has("local") ? allLocal() : undefined; },
     get ui() { return ctx.store.get("ui"); },
     get env() {
       const facts = getDeviceFacts() as { locale?: string };
@@ -97,9 +105,12 @@ export function useFactsWatch(deps: readonly string[] | null): void {
 const stickyCache = new Map<string, { run(s: Scope): unknown } | null>();
 
 export function itemBool(expr: unknown, ctx: Ctx, scope: ItemScope): boolean {
-  const src = typeof expr === "string" ? expr
-    : expr && typeof expr === "object" && typeof (expr as { $?: unknown }).$ === "string" ? (expr as { $: string }).$
-      : null;
+  // ONLY THE `{ "$": … }` SHAPE (SPEC 2.2 principle 4). A bare string is data, not a template, everywhere else in
+  // this renderer, and `sticky` is no exception: compiling one here would be the one place a plain string from
+  // the server gets run as an expression.
+  const src = expr && typeof expr === "object" && typeof (expr as { $?: unknown }).$ === "string"
+    ? (expr as { $: string }).$
+    : null;
   if (!src) return false;
   let compiled = stickyCache.get(src);
   if (compiled === undefined) {
