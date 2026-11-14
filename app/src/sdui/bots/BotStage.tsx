@@ -35,13 +35,13 @@ import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import * as K from "../knobs";
 import type { BotRoam, BotThoughtSpec, Condition } from "../types";
-import { BotTile, INK, Mark, Peek, Roam, followStep, kindOf, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
+import { BotTile, INK, Mark, Peek, Roam, followStep, kindOf, rng, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Drawable, type Painter } from "../../botTiles/TileSurface";
 import { noteScenes, useLooks } from "../../botTiles/looks";
 import { Blur } from "../components/blur";
 import { DottedFrame } from "../components/dotted";
 import { FooterField } from "../components/Screen";
-import { voiceLevel } from "../voice/voiceBus";
+import { speaking, voiceLevel } from "../voice/voiceBus";
 import { ThoughtContext, type ThoughtControl } from "./thought";
 import {
   PEEK, STAGE, grownHeight, keyboardLift, listenRect, lowLayout, peekHeight, peekHide, pillBottom, pillBounds, pillRect, restHeight, squareRect, fullRect, stageAct, stageMode, tapInStage, tapOn,
@@ -61,6 +61,8 @@ interface Life {
   peek: Peek | null;
   /** The mark he carries at rest when the server sends one instead of words; null when he carries words, or nothing. */
   mark: Mark | null;
+  /** Seconds until the next thing he does with himself while he is speaking. */
+  talkIn: number;
   follow: FollowState;
   /** His crown's height over his floor as he stands (measured once he is placed): the pill sits the trail's room over it. */
   crownH: number;
@@ -88,7 +90,7 @@ function lifeOf(life: string, kind: BotKind, color: string, size: number, toys: 
     // seconds on pages people sit on (Home, a space's feed), where a sneeze or a clap each time would be noise.
     bot.cloth = 0;
     if (LIVES.size > 24) LIVES.clear();
-    l = { bot, roam: null, peek: null, mark: null, follow: { x: NaN, v: 0, target: NaN }, crownH: 0, mode: "rest", cheer: null, out: null, outAt: "right", standUntil: 0, glide: false };
+    l = { bot, roam: null, peek: null, mark: null, talkIn: 0, follow: { x: NaN, v: 0, target: NaN }, crownH: 0, mode: "rest", cheer: null, out: null, outAt: "right", standUntil: 0, glide: false };
     LIVES.set(key, l);
   }
   return l;
@@ -219,6 +221,9 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   // edge, which cuts him off at the line the bar starts, so all that shows is his head — until he jumps the ledge (core.ts
   // Peek) and stands in full view for a few moments.
   const peeks = props?.stand === "peek";
+  // What he does with himself while he is speaking: small, conversational moments, one every few seconds, so words never come
+  // out of a bot standing perfectly still. The server names them (a moment this build cannot play is never sent).
+  const talkMoments: string[] = Array.isArray(props?.talkMoments) ? (props.talkMoments as unknown[]).filter((x): x is string => typeof x === "string") : [];
   const hasDouble = !!node.on?.onDoubleTap;
   const outSide: "left" | "right" | null = props?.outSide === "left" || props?.outSide === "right" ? props.outSide : null;
   const roamSpec: BotRoam | null = props?.roam && typeof props.roam === "object" && Array.isArray(props.roam.moments) ? (props.roam as BotRoam) : null;
@@ -628,6 +633,8 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   const modeRef = useRef(mode); modeRef.current = mode;
   const listeningRef = useRef(listening); listeningRef.current = listening;
   const restTextRef = useRef(restText); restTextRef.current = restText;
+  const talkRef = useRef(talkMoments); talkRef.current = talkMoments;
+  const talkRnd = useRef(rng((bot.seed ^ 0x3b17) >>> 0));
   const markRef = useRef(marking); markRef.current = marking;
   // The mark rides a short trail over where his head is when he stands on the ledge — it does not bob with his jumps.
   const trailK = peeks && marking ? PEEK.trail : 1;
@@ -643,6 +650,20 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
       bot.step(dt);
       life.roam?.step(dt);
       life.peek?.step(dt);
+      // Something to do with himself while he talks: never over a moment already playing, and never with Reduce Motion.
+      if (talkRef.current.length && !still) {
+        if (speaking(store)) {
+          life.talkIn -= dt;
+          if (life.talkIn <= 0) {
+            if (!bot.mo) {
+              const ids = talkRef.current;
+              const m = L.moment(ids[Math.floor(talkRnd.current() * ids.length) % ids.length]!);
+              if (m) bot.playMoment(m, "once");
+            }
+            life.talkIn = 1.9 + talkRnd.current() * 1.7;
+          }
+        } else life.talkIn = 0.3;
+      }
       if (life.mark) {
         const b = pillBounds(W, markRef.current ? 2 * (life.mark.spec.r + 6) : 0);
         life.mark.step(dt, Math.min(Math.max(bot.x[2]!, b.lo), b.hi), markYRef.current);

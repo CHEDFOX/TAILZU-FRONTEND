@@ -15,6 +15,7 @@ import { setAudioModeAsync } from "expo-audio";
 import type { ActionRef } from "../types";
 // A live call (callRealtime.ts) holds the microphone and the speaker together; only its rules file is imported, never the call.
 import { callOn } from "./callRealtimeCore";
+import { setSpeaking } from "./voiceBus";
 
 export interface SpeakLine {
   text: string;
@@ -36,6 +37,7 @@ let current: Speaking | null = null;
 /** The current one dropped (its onDone never runs) and the voice stopped. */
 function drop(s: Speaking): void {
   s.dropped = true;
+  setSpeaking(s.owner, false);
   if (s.watchdog) clearTimeout(s.watchdog);
   if (current === s) current = null;
   try { Speech.stop(); } catch { /* nothing to stop */ }
@@ -49,9 +51,14 @@ export async function speakLine(a: SpeakLine, io: SpeakIO): Promise<void> {
   // NOT WHILE A LIVE CALL IS ON. The bot is already talking, live, and this voice would set the audio session under the call's
   // own. `onDone` still runs, so a screen waiting to listen next is never stranded.
   if (callOn()) { await io.run(a.onDone); return; }
-  // Today's speak, untouched: no audio session change, nothing run after.
+  // Today's speak, untouched: no audio session change, nothing run after. The one addition is the flag the stage reads, so he
+  // has something to do with himself while the words come out; the callbacks here only put it down again.
   if (!a.loud && !a.onDone) {
-    try { Speech.speak(text, { voice: a.voice }); } catch { /* no-op */ }
+    setSpeaking(io.owner, true);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const quiet = () => { if (timer) clearTimeout(timer); setSpeaking(io.owner, false); };
+    timer = setTimeout(quiet, watchdogMs(text));
+    try { Speech.speak(text, { voice: a.voice, onDone: quiet, onStopped: quiet, onError: quiet }); } catch { quiet(); }
     return;
   }
   if (current) drop(current);
@@ -62,12 +69,14 @@ export async function speakLine(a: SpeakLine, io: SpeakIO): Promise<void> {
   const finish = () => {
     if (me.done) return;
     me.done = true;
+    setSpeaking(me.owner, false);
     if (me.watchdog) clearTimeout(me.watchdog);
     if (current === me) current = null;
     if (!me.dropped) void io.run(a.onDone);
   };
   if (!text.trim()) { finish(); return; }
   me.watchdog = setTimeout(finish, watchdogMs(text));
+  setSpeaking(me.owner, true);
   try {
     Speech.speak(text, { voice: a.voice, onDone: finish, onStopped: finish, onError: finish });
   } catch {

@@ -11,6 +11,8 @@
 interface Bus {
   words: string;
   level: number;
+  /** True while the phone is saying something for him (his own voice, not theirs). */
+  speaking: boolean;
   listeners: Set<() => void>;
 }
 
@@ -19,7 +21,7 @@ const buses = new WeakMap<object, Bus>();
 function busOf(owner: object): Bus {
   let b = buses.get(owner);
   if (!b) {
-    b = { words: "", level: 0, listeners: new Set() };
+    b = { words: "", level: 0, speaking: false, listeners: new Set() };
     buses.set(owner, b);
   }
   return b;
@@ -50,6 +52,24 @@ export function setVoiceLevel(owner: object, v: number): void {
 
 export function voiceLevel(owner: object): number {
   return buses.get(owner)?.level ?? 0;
+}
+
+/**
+ * HIS OWN VOICE, not theirs: true while the phone is saying something for him (speech.ts, the `speak` action). The stage reads
+ * it so he can do something with himself while he talks — a hum, a mutter, a shrug — instead of standing there while words
+ * come out of nowhere.
+ */
+export function setSpeaking(owner: object, on: boolean): void {
+  const b = busOf(owner);
+  if (b.speaking === on) return;
+  b.speaking = on;
+  for (const fn of [...b.listeners]) {
+    try { fn(); } catch { /* a listener's fault is its own */ }
+  }
+}
+
+export function speaking(owner: object): boolean {
+  return buses.get(owner)?.speaking ?? false;
 }
 
 /** Called each time the words change. Returns the way to stop listening. */

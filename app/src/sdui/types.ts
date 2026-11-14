@@ -665,6 +665,9 @@ export interface BotStageProps {
   hit?: "bot" | "stage";
   /** false: he never plays with props (the person's own bot). */
   toys?: boolean;
+  /** What he does with himself while he is speaking (the `speak` action): one of these catalog moments every couple of
+   *  seconds, so words never come out of a bot standing perfectly still. */
+  talkMoments?: string[];
   roam?: BotRoam;
   /** While it holds he walks out at `outSide` (none: the edge nearer him then, as the prototype does); when it stops he walks back
    *  in from the edge he left by. */
