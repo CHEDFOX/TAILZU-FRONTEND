@@ -165,6 +165,20 @@ if (config) {
       problems.push(`App access instructions: the Play text describes ${what}, but this Android build is built without it (app/native-inputs.lock ${lockKey}.production is off)`);
     }
   }
+  // AND THE ONE OF THE THREE GOOGLE ALSO ASKS FOR IN THE LISTING ITSELF. Play's prominent-disclosure rule puts the
+  // background-location words "within the app itself as well as in the app description and website" (Play help 9799150),
+  // so the Full description carries them too, not only App access instructions, and it cuts both ways as above. The words
+  // Play names are "location", "background" and one of its closed phrases, which is why all three are looked for.
+  const fullPlay = bodyOf(/^full description/i);
+  const saysBackground = /\blocation\b/i.test(fullPlay) && /\bin the background\b/i.test(fullPlay)
+    && /when the app is closed or not in use/i.test(fullPlay);
+  const arrival = lockedSwitch("androidArrival");
+  if (arrival === "on" && !saysBackground) {
+    problems.push("Full description: the Android build uses location in the background for arrival reminders, but the Full description never says so (Play help 9799150: the disclosure belongs in the app description too)");
+  }
+  if (arrival === "off" && saysBackground) {
+    problems.push("Full description: it discloses background location, but this Android build is built without it (app/native-inputs.lock androidArrival.production is off)");
+  }
 }
 if (privacy) {
   // A usage string or permission in the build, and the privacy answers still calling it "not collected" or "never read".

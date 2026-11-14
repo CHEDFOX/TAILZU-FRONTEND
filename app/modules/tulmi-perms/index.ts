@@ -223,9 +223,9 @@ export interface TulmiPermsNative {
    * READ_SLEEP in this package's requested permissions; and from 8.9.1 calendarRead, motion and
    * arrival are each their own build switch's permission being in that same merged manifest
    * (TULMI_ANDROID_CALENDAR / _MOTION / _ARRIVAL), with motion also needing a step counter on the
-   * phone and arrival also needing geofencing compiled in. Every shipping profile has all three
-   * off, so a release build answers exactly what it answered before. `reminders`, `appAttest` and
-   * `deviceCheck` are false on Android.
+   * phone and arrival also needing geofencing compiled in. From 8.9.1 the shipping profiles have
+   * all three ON, so a release build answers true to each one wherever the phone can do it.
+   * `reminders`, `appAttest` and `deviceCheck` are false on Android.
    */
   abilities(): Partial<Record<Ability, boolean>>;
 

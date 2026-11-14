@@ -15,15 +15,16 @@
  * this file takes a position in, and nothing it produces is ever posted anywhere: `arrival.sync`
  * sends places DOWN to the phone and gets back only how many were armed.
  *
- * WHERE ANDROID REALLY DIFFERS, AND WHY THIS SHIPS OFF. iOS has a trigger where the system both
+ * WHERE ANDROID REALLY DIFFERS, AND WHAT PLAY ASKS FOR. iOS has a trigger where the system both
  * watches the region and shows the notification, so it needs only *While Using* and no Play
  * paperwork (SPEC 7.1). Android has no such thing: a geofence is delivered to the app, which shows
  * the notification itself, and for that to work with the app closed it needs `ACCESS_FINE_LOCATION`
  * **and** `ACCESS_BACKGROUND_LOCATION` — a Play background-location declaration, a demo video and a
- * human review (OWNER-ANDROID.md). So `TULMI_ANDROID_ARRIVAL` ships **off in every shipping
- * profile**, and a slow Play review never holds the release: with it off the two permissions stay in
- * `blockedPermissions`, no geofencing is in the binary, `abilities().arrival` is false and the
- * server draws no switch.
+ * human review (OWNER-ANDROID.md). From 8.9.1 `TULMI_ANDROID_ARRIVAL` is **on in the shipping
+ * profiles**, so this code is in the Android release and the declaration has to be approved before
+ * it is uploaded. It stays its own switch, so it can be turned back off on its own: with it off the
+ * two permissions stay in `blockedPermissions`, no geofencing is in the binary,
+ * `abilities().arrival` is false and the server draws no switch.
  *
  * THE TWO STEPS, AND WHY NEITHER CAN BE SKIPPED:
  *

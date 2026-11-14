@@ -1071,6 +1071,9 @@ export type ActionSpec =
         /** "motion" only with Motion1; "backgroundLocation" only with Arrival1 on Android ("Allow all the time", a REQUEST
          *  and not a bare openSettings). "contacts", "calendar" and "tracking" stay unsupported. */
         | "contacts" | "calendar" | "location" | "motion" | "backgroundLocation" | "tracking";
+      /** The server's own card already said what this reads and why, so the phone skips its "One permission first"
+       *  card and goes straight to the system prompt (actions.ts). Only a card's own Continue may send it. */
+      primed?: true;
       onGranted?: ActionRef;
       onDenied?: ActionRef;
       /** The system will not ask again — the answer is already on record and

@@ -16,6 +16,11 @@
 // show the real system location sheet, because COARSE *is* declared for "Use my location". A stray
 // action from the server must reach none of that.
 //
+// FROM 8.9.1 ALL THREE ARE ON IN `preview` AND `production` (app/eas.json), so the switch-ON tests
+// are the release build's behaviour. The switch-OFF tests are still the ones that matter most: they
+// are the `development` profile, any build made with none of the three set, and — if Play ever asks
+// for one of them to be turned back off — the release after that.
+//
 // These run the REAL src/device/health.ts, motion.ts, calendar.ts and arrival.ts with react-native
 // and natives.ts faked by a module hook, because what they decide is not in a pure core: it is the
 // branch that picks the core in the first place. The cores' own decisions stay in
