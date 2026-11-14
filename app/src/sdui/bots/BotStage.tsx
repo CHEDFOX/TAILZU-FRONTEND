@@ -35,7 +35,7 @@ import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import * as K from "../knobs";
 import type { BotRoam, BotThoughtSpec, Condition } from "../types";
-import { BotTile, INK, Roam, followStep, kindOf, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
+import { BotTile, INK, Peek, Roam, followStep, kindOf, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Drawable, type Painter } from "../../botTiles/TileSurface";
 import { noteScenes, useLooks } from "../../botTiles/looks";
 import { Blur } from "../components/blur";
@@ -44,7 +44,7 @@ import { FooterField } from "../components/Screen";
 import { voiceLevel } from "../voice/voiceBus";
 import { ThoughtContext, type ThoughtControl } from "./thought";
 import {
-  STAGE, grownHeight, keyboardLift, listenRect, lowLayout, pillBottom, pillBounds, pillRect, restHeight, squareRect, fullRect, stageAct, stageMode, tapInStage, tapOn,
+  PEEK, STAGE, grownHeight, keyboardLift, listenRect, lowLayout, peekHeight, peekHide, pillBottom, pillBounds, pillRect, restHeight, squareRect, fullRect, stageAct, stageMode, tapInStage, tapOn,
   walksLow,
   wideRect, type Rect, type StageMode, type Win,
 } from "./stageCore";
@@ -57,6 +57,8 @@ const LINE = "#d4d4d4", PAPER = "#ffffff", REST_INK = "#8a8a8a";
 interface Life {
   bot: BotTile;
   roam: Roam | null;
+  /** His comings and goings over the bar at the foot of the page (`stand: "peek"`); null on a stage he stands on. */
+  peek: Peek | null;
   follow: FollowState;
   /** His crown's height over his floor as he stands (measured once he is placed): the pill sits the trail's room over it. */
   crownH: number;
@@ -84,7 +86,7 @@ function lifeOf(life: string, kind: BotKind, color: string, size: number, toys: 
     // seconds on pages people sit on (Home, a space's feed), where a sneeze or a clap each time would be noise.
     bot.cloth = 0;
     if (LIVES.size > 24) LIVES.clear();
-    l = { bot, roam: null, follow: { x: NaN, v: 0, target: NaN }, crownH: 0, mode: "rest", cheer: null, out: null, outAt: "right", standUntil: 0, glide: false };
+    l = { bot, roam: null, peek: null, follow: { x: NaN, v: 0, target: NaN }, crownH: 0, mode: "rest", cheer: null, out: null, outAt: "right", standUntil: 0, glide: false };
     LIVES.set(key, l);
   }
   return l;
@@ -198,6 +200,10 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   const low = th?.place === "low";
   const home = th?.style === "home";
   const hitStage = props?.hit === "stage";
+  // "peek": he does not stand on this stage, he lives behind the bar under it. His ground is below the canvas's own bottom
+  // edge, which cuts him off at the line the bar starts, so all that shows is his head — until he jumps the ledge (core.ts
+  // Peek) and stands in full view for a few moments.
+  const peeks = props?.stand === "peek";
   const hasDouble = !!node.on?.onDoubleTap;
   const outSide: "left" | "right" | null = props?.outSide === "left" || props?.outSide === "right" ? props.outSide : null;
   const roamSpec: BotRoam | null = props?.roam && typeof props.roam === "object" && Array.isArray(props.roam.moments) ? (props.roam as BotRoam) : null;
@@ -220,7 +226,11 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
 
   // ---- the stage's size
   const [W, setW] = useState(0);
-  const restH = restHeight(Number(props?.height) || 0, size, !!restText);
+  // Peeking, the bar under the stage keeps the bottom of him, so the stage itself is that much shorter — the page gets the room
+  // back — but never shorter than him whole on the ledge with the room his jump needs over it.
+  const restH = peeks
+    ? peekHeight(Number(props?.height) || 0, size, !!restText)
+    : restHeight(Number(props?.height) || 0, size, !!restText);
   const [contentH, setContentH] = useState(0);
   const boxTarget = useRef<Rect | null>(null);
   const [inlineBoxH, setInlineBoxH] = useState(0);
@@ -240,6 +250,13 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
     const first = !bot.placed;
     bot.resize(W, stageH, floor);
     if (first || !life.crownH) life.crownH = Math.max(1, Math.round(floor - bot.crown().y));
+    if (peeks) {
+      // His own ground is under the stage, past where resize would allow a floor: Peek owns it from here.
+      const spec = { hidden: floor + peekHide(size), ledge: floor, crownH: life.crownH, every: PEEK.every, stay: PEEK.stay };
+      if (!life.peek) life.peek = new Peek(bot, spec, (bot.seed ^ 0x51a3) >>> 0);
+      life.peek.spec = spec;
+      bot.floor = life.peek.state === "up" ? spec.ledge : spec.hidden;
+    } else life.peek = null;
     if (roamSpec) {
       if (!life.roam) life.roam = new Roam(bot, L, roamSpec, W, (bot.seed ^ 0x9e37) >>> 0);
       life.roam.spec = roamSpec;
@@ -271,7 +288,7 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
     if (W <= 0) return;
     const was = life.cheer;
     life.cheer = cheering;
-    if (cheering && was !== true && !still) bot.cheer();
+    if (cheering && was !== true && !still) { bot.cheer(); life.peek?.visit(); }
   }, [cheering, W, still, bot, life]);
 
   // What he does (stageAct): thinking, listening, standing (a thought open, a breath after it closes), or his own play.
@@ -282,6 +299,12 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
     if (bot.moment !== act) bot.setAct(act);
     if (act !== "listen") { bot.setLevel(0); if (bot.focusX === bot.focusX) bot.lookAway(); }
     life.roam?.pause(act !== "play" || mode !== "rest");
+    // A thought open, a question being answered, an ear on them: he comes over the ledge for it and stays up while it lasts.
+    if (life.peek) {
+      const busy = act !== "play" || mode !== "rest";
+      if (busy) life.peek.visit();
+      life.peek.paused = busy && life.peek.state === "up";
+    }
     if (life.standUntil > nowMs()) {
       const t = setTimeout(() => setStandTick((n) => n + 1), life.standUntil - nowMs() + 20);
       return () => clearTimeout(t);
@@ -594,6 +617,7 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
       if (!bot.placed) return;
       bot.step(dt);
       life.roam?.step(dt);
+      life.peek?.step(dt);
       const m = modeRef.current;
       const headX = bot.x[2]!;
       // the pill follows him at rest (gliding back over him after a thought)

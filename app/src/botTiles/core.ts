@@ -6171,6 +6171,112 @@ export class Roam {
   }
 }
 
+/**
+ * HOW HE LIVES AT THE FOOT OF A PAGE (BotStage `stand: "peek"`, docs/home-updates.md).
+ *
+ * He is not a whole bot standing in a white strip. He lives BEHIND the bar at the bottom of the screen: the ground back there
+ * is low, so only his head clears the bar, and he wanders along it mostly out of sight. Every so often he jumps the ledge,
+ * stands in full view for a few moments, and drops back behind.
+ *
+ * It is one ledge and two floors, the way a platform is. The jump is his own gravity and nothing is tweened: he leaves the low
+ * ground with enough speed to clear the lip, the ledge becomes his floor the instant his feet are over it (so he lands on it
+ * and stays), and the low ground is his again the instant he steps off (so he falls back behind). Miss the lip and he lands
+ * where he was and waits for the next one.
+ *
+ * step() after bot.step(). Its own random numbers: the same seed, the same comings and goings every time.
+ */
+export interface PeekSpec {
+  /** The ground behind the bar, in the canvas's px: standing there, only his head shows over it. */
+  hidden: number;
+  /** The ledge's top: the floor he stands on in full view (the stage's own floor). */
+  ledge: number;
+  /** His crown's height over whatever floor he is on (the stage measures it once he is placed). */
+  crownH: number;
+  /** Seconds from one visit to the next. */
+  every: [number, number];
+  /** Seconds he stays up. */
+  stay: [number, number];
+}
+
+export type PeekState = "behind" | "rising" | "up" | "falling";
+
+export class Peek {
+  bot: BotTile;
+  spec: PeekSpec;
+  rand: () => number;
+  paused = false;
+  state: PeekState = "behind";
+  /** Seconds to the next visit, and seconds left of the one he is on. */
+  wait: number;
+  left = 0;
+  /** Seconds since he left the ground: his feet drag on it for a frame or two, which is not a jump that failed. */
+  since = 0;
+
+  constructor(bot: BotTile, spec: PeekSpec, seed: number) {
+    this.bot = bot;
+    this.spec = spec;
+    this.rand = rng((seed >>> 0) ^ 0x2fa71d);
+    this.wait = this.pick(spec.every);
+  }
+
+  pick(r: [number, number]): number {
+    const a = Number(r?.[0]) || 0, b = Number(r?.[1]) || a;
+    return a + this.rand() * (b - a);
+  }
+
+  /** Where his feet are now: his crown, plus his height. */
+  feet(): number {
+    return this.bot.crown().y + this.spec.crownH;
+  }
+
+  /** Up: enough speed to clear the lip with a little to spare, and a lean, so he lands somewhere else along the bar. */
+  rise(): void {
+    const b = this.bot, climb = Math.max(1, this.spec.hidden - this.spec.ledge);
+    b.jump((this.rand() - 0.5) * b.S * 1.6, -Math.sqrt(2 * b.g * (climb + b.S * 0.55)));
+    this.state = "rising";
+    this.since = 0;
+  }
+
+  /** Off the ledge: the low ground is his again, so this hop drops him behind the bar. */
+  drop(): void {
+    const b = this.bot;
+    b.floor = this.spec.hidden;
+    b.jump((this.rand() - 0.5) * b.S * 1.1, -b.S * 0.9);
+    this.state = "falling";
+  }
+
+  /** Up now, whatever he was doing (something landed and he wants to be seen); already up, he stays a while longer. */
+  visit(): void {
+    if (this.state === "behind" && this.bot.grounded) this.rise();
+    else if (this.state === "up") this.left = Math.max(this.left, this.pick(this.spec.stay));
+  }
+
+  step(dt: number): void {
+    const b = this.bot, s = this.spec;
+    if (this.paused) return;
+    if (this.state === "behind") {
+      if (b.grounded && b.floor !== s.hidden) b.floor = s.hidden;
+      this.wait -= dt;
+      if (this.wait <= 0 && b.grounded) this.rise();
+      return;
+    }
+    if (this.state === "rising") {
+      this.since += dt;
+      if (this.feet() <= s.ledge) { b.floor = s.ledge; this.state = "up"; this.left = this.pick(s.stay); return; }
+      // Down again without clearing the lip: he tries the next one. (His feet drag for a frame or two as he goes, which is
+      // why nothing is read from `grounded` until he has had a moment in the air.)
+      if (b.grounded && this.since > 0.25) { this.state = "behind"; this.wait = this.pick(s.every); }
+      return;
+    }
+    if (this.state === "up") {
+      this.left -= dt;
+      if (this.left <= 0 && b.grounded) this.drop();
+      return;
+    }
+    if (b.grounded) { this.state = "behind"; this.wait = this.pick(s.every); }
+  }
+}
+
 /** One bubble of his thought's trail: its centre, radius and ink outline (px), and how much it shows (0..1). */
 export interface TrailBubble { x: number; y: number; r: number; stroke: number; alpha: number }
 

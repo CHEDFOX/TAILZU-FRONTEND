@@ -9,8 +9,8 @@ import test from "node:test";
 import assert from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
 import {
-  BotTile, BotTilesWorld, CARRY, FOLLOW, Fabric, LiveMark, Roam, STEP, TRAIL, checkExpression, compileLooks, compileWith, followStep, gridWorld, rng,
-  thoughtTrail, trailRoom, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type FollowState, type TileCtx,
+  BotTile, BotTilesWorld, CARRY, FOLLOW, Fabric, LiveMark, Peek, Roam, STEP, TRAIL, checkExpression, compileLooks, compileWith, followStep, gridWorld, rng,
+  thoughtTrail, trailRoom, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type FollowState, type PeekState, type TileCtx,
 } from "./core.ts";
 import { STARTER } from "./starter.ts";
 // @ts-expect-error a plain .mjs script, no types
@@ -575,6 +575,45 @@ test("Roam: walks to spots in his span and plays moments; the same seed, the sam
   t.setAct("play");
   r.pause(true);
   for (let f = 0; f < 60 * 8; f++) { t.step(1 / 60); r.step(1 / 60); assert.ok(!t.walking() && !t.mo, "paused: nothing"); }
+});
+
+test("Peek: he lives behind the bar, jumps the ledge into full view, stays a few moments and drops back", () => {
+  const run = (seed: number) => {
+    const t = stageBot(5);
+    const ledge = t.floor, hidden = t.floor + 18, crownH = Math.round(t.floor - t.crown().y);
+    const p = new Peek(t, { hidden, ledge, crownH, every: [2, 3], stay: [1.5, 2.5] }, seed);
+    const seen: PeekState[] = [];
+    let upFrames = 0, fullyUp = 0, lowest = -1e9;
+    for (let f = 0; f < 60 * 40; f++) {
+      t.step(1 / 60);
+      p.step(1 / 60);
+      if (seen[seen.length - 1] !== p.state) seen.push(p.state);
+      // up: the ledge is his floor, and he stands on it (his own breathing moves his crown a few px either way)
+      if (p.state === "up") { upFrames++; if (t.floor === ledge && t.crown().y + crownH <= ledge + t.S * 0.25) fullyUp++; }
+      if (p.state === "behind" && t.grounded) lowest = Math.max(lowest, t.crown().y);
+      if (f % 120 === 0) assert.ok(t.finite(), `finite at ${f}`);
+    }
+    return { t, seen, upFrames, fullyUp, lowest, ledge, hidden, crownH };
+  };
+  const a = run(3);
+  // he goes round the whole cycle, more than once
+  assert.ok(a.seen.filter((s) => s === "up").length >= 2, `visits: ${a.seen.join(" > ")}`);
+  assert.deepStrictEqual(a.seen.slice(0, 4), ["behind", "rising", "up", "falling"]);
+  // behind the bar his crown is about a head over the low ground, which is under the ledge: that is the peek
+  assert.ok(a.lowest > a.ledge - a.crownH + 1, `he stands low behind the bar (crown ${a.lowest.toFixed(0)})`);
+  // up there he is whole, standing on the ledge, for a real while
+  assert.ok(a.upFrames > 60, `he stays up (${a.upFrames} frames)`);
+  assert.ok(a.fullyUp > a.upFrames * 0.6, `and he is over the lip while he is up (${a.fullyUp}/${a.upFrames})`);
+  // the same seed, the same comings and goings; another seed, another rhythm
+  assert.deepStrictEqual(Array.from(run(3).t.x), Array.from(a.t.x), "deterministic");
+  assert.notDeepStrictEqual(Array.from(run(9).t.x), Array.from(a.t.x), "another seed, another rhythm");
+  // paused (his thought is open), he stays where he is
+  const t = stageBot(5), p = new Peek(t, { hidden: t.floor + 18, ledge: t.floor, crownH: 30, every: [0.2, 0.2], stay: [99, 99] }, 4);
+  for (let f = 0; f < 60 * 4; f++) { t.step(1 / 60); p.step(1 / 60); }
+  assert.equal(p.state, "up", "a long stay keeps him up");
+  p.paused = true;
+  for (let f = 0; f < 60 * 6; f++) { t.step(1 / 60); p.step(1 / 60); }
+  assert.equal(p.state, "up", "paused: he does not drop back mid-thought");
 });
 
 test("listening: still, eyes wide open, his head toward his thought, the antenna lit with the voice; standing: still", () => {
