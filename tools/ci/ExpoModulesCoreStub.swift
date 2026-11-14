@@ -104,6 +104,18 @@ public func AsyncFunction<A0: AnyArgument>(
   @_implicitSelfCapture _ closure: @escaping (A0, Promise) -> Void
 ) -> AnyDefinition { FunctionDefinition() }
 
+// Two and three arguments before the Promise: calendarBusy, motionDays, attestKey,
+// attestAssert. The real pod takes any count through a parameter pack.
+public func AsyncFunction<A0: AnyArgument, A1: AnyArgument>(
+  _ name: String,
+  @_implicitSelfCapture _ closure: @escaping (A0, A1, Promise) -> Void
+) -> AnyDefinition { FunctionDefinition() }
+
+public func AsyncFunction<A0: AnyArgument, A1: AnyArgument, A2: AnyArgument>(
+  _ name: String,
+  @_implicitSelfCapture _ closure: @escaping (A0, A1, A2, Promise) -> Void
+) -> AnyDefinition { FunctionDefinition() }
+
 public func AsyncFunction<R>(
   _ name: String,
   @_implicitSelfCapture _ closure: @escaping () throws -> R

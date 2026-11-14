@@ -1,8 +1,13 @@
 /** The plumbing under every backend call: the bearer token, the shared headers, a POST, and the retry around it. */
+import { Platform } from "react-native";
 import { getBaseUrl, getLanguage } from "../../storage";
 import { getSupabaseAccessToken as getAccessToken } from "../../auth/supabaseClient";
-import { num } from "../knobs";
+import { bool, num } from "../knobs";
+import { installId } from "../../device/installId";
+import { appRuntime } from "../blocks/declared";
 import { QuotaExceededError, HttpError, errorDetail } from "./errors";
+import { emptyAnswer } from "./endpointCore";
+import { APP_VERSION } from "./version";
 
 export async function token(): Promise<string> {
   // Signed-in user's Supabase JWT; "dev" fallback for DEV_SKIP_AUTH backends.
@@ -15,12 +20,29 @@ export async function token(): Promise<string> {
  * localize ANY endpoint's response to the selected language — so adding more
  * languages later is purely a backend concern. Omitted until a language is set.
  */
+/**
+ * WHICH APP IS CALLING (docs: perms2 8.4). `X-App-Platform`, `X-App-Version` and `X-App-Runtime` say what this build is, so the
+ * server can see a request that does not fit what it claims (a script sending our paths). They are forgeable, which is the point:
+ * only a MISMATCH with the user agent or the bootstrap's own claims means anything, and the server only ever counts.
+ *
+ * `X-App-Install` is this install's own made-up number (device/installId.ts), sent only while the last bootstrap's flags say
+ * `trust.installId` — off by default, so until the owner turns it on nothing new leaves the phone. It is never derived from the
+ * device, resets on reinstall, and the server only counts with it.
+ */
 export async function commonHeaders(): Promise<Record<string, string>> {
   const [tok, lang] = await Promise.all([token(), getLanguage()]);
   const h: Record<string, string> = { Authorization: `Bearer ${tok}` };
   if (lang) {
     h["X-App-Language"] = lang;
     h["Accept-Language"] = lang;
+  }
+  h["X-App-Platform"] = Platform.OS === "ios" ? "ios" : "android";
+  if (APP_VERSION) h["X-App-Version"] = APP_VERSION;
+  const runtime = appRuntime();
+  if (runtime) h["X-App-Runtime"] = runtime;
+  if (bool("trust.installId", false)) {
+    const id = await installId();
+    if (id) h["X-App-Install"] = id;
   }
   return h;
 }
@@ -60,6 +82,9 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
     console.warn(`[net] ${path} → ${res.status}`);
     throw new HttpError(res.status, `${path} → ${res.status}`);
   }
+  // A 204 carries no body, and React Native's json() is text() then JSON.parse, which throws on an empty one — so a route that
+  // answers "done, nothing to say" (the trust routes, perms2 9.3) looked like a failed call to its caller.
+  if (emptyAnswer(res.status)) return undefined as T;
   return (await res.json()) as T;
 }
 

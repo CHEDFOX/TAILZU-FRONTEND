@@ -9,19 +9,22 @@
  * this logs them. Which milestones exist, and when one counts, is decided in
  * the backend (src/ads/meta.ts), so changing it needs no release.
  *
- * Off in three ways, each a no-op for everything below:
+ * Off in four ways, each a no-op for everything below:
+ *   - the phone is an iPhone (see the next paragraph: there is no Meta in that binary at all);
  *   - the build has no META_APP_ID (and so no SDK configured natively);
  *   - the server's knob ads.meta.enabled is false;
  *   - the native module is missing (an older binary running this bundle).
  *
- * iPhone: on when the server says (ads.meta.ios.enabled). Apple's tracking prompt comes first; Meta gets the
- * advertising id only from those who allow it, and counts the rest in aggregate (SKAdNetwork and Aggregated Event
- * Measurement), which is why each event is also given to the AEM reporter there. Nothing reaches Meta before the person
- * has answered the prompt: the events wait for the SDK to be started after it (`ready`).
+ * ANDROID ONLY, AND NOT BY A KNOB. The iPhone build carries no Meta SDK and no tracking prompt at all
+ * (plugins/withNoMetaIos.js, package.json's expo.autolinking.ios.exclude): no FacebookAppID, no
+ * NSUserTrackingUsageDescription, no App Tracking Transparency code. A binary that could ask to track and never asked
+ * is App Review 2.5.19, and is what the build-79 rejection under 2.1 was about. So this returns at once on iOS, where
+ * there is nothing to start, and no server knob can change that — ads.meta.ios.enabled is gone. Putting Meta on the
+ * iPhone means its own reviewed build, with App Privacy, the privacy manifest and the policy changed in the same
+ * submission.
  *
  * The server's knob is in the bootstrap, which is not in hand when the app mounts: so initMeta is tried again when a
- * bootstrap arrives (SduiApp), and the first try that finds the knob on is the one that asks. A build that tried only
- * at mount never asked at all (App Review 2.1, build 79).
+ * bootstrap arrives (SduiApp); the first try that finds ads.meta.enabled on starts the SDK (Android only).
  */
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -38,7 +41,7 @@ export interface MetaEvent {
 type Sdk = typeof import("react-native-fbsdk-next");
 let sdk: Sdk | null = null;
 let started = false;
-/** Settles once the SDK is started, after Apple's prompt on iPhone: true when it is, false when it could not be. */
+/** Settles once the SDK is started: true when it is, false when it could not be. */
 let ready: Promise<boolean> | null = null;
 
 function load(): Sdk | null {
@@ -54,27 +57,17 @@ function load(): Sdk | null {
   return sdk;
 }
 
-/** Start the SDK, which logs the install and app opens on its own. On iPhone, only when the server says, after the prompt. */
+/** Start the SDK, which logs the install and app opens on its own. ANDROID ONLY: the iPhone build has no Meta in it. */
 export function initMeta(): void {
+  // The iPhone leaves FIRST, before the knob is even read: there is no SDK and no tracking prompt in that binary, so
+  // there is nothing a server could switch on. Keeping an iOS branch here would be the dormant feature 2.5.19 names.
+  if (Platform.OS === "ios") return;
   if (started || !APP_ID || !bool("ads.meta.enabled", true)) return;
-  if (Platform.OS === "ios" && !bool("ads.meta.ios.enabled", false)) return;
   const m = load();
   if (!m) return;
   started = true;
   ready = (async () => {
     try {
-      if (Platform.OS === "ios") {
-        // Apple's prompt, once; a later launch reads the answer without asking again.
-        let allowed = false;
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const att = require("expo-tracking-transparency") as typeof import("expo-tracking-transparency");
-          allowed = (await att.requestTrackingPermissionsAsync()).granted;
-        } catch {
-          allowed = false;   // a binary without the module: never tracked
-        }
-        await m.Settings.setAdvertiserTrackingEnabled(allowed);
-      }
       m.Settings.initializeSDK();
       return true;
     } catch {
@@ -91,7 +84,7 @@ export function logMetaEvents(events: unknown): void {
   initMeta();
   const after = ready;
   if (!after) return;
-  // After the SDK has started, and so after the person has answered Apple's prompt: never before.
+  // Only after the SDK has really started, so nothing is logged against a build that has none.
   void after.then((ok) => { if (ok && sdk) logNow(sdk, events as MetaEvent[]); });
 }
 
@@ -101,8 +94,9 @@ function logNow(sdk: Sdk, events: MetaEvent[]): void {
     if (!/^[A-Za-z0-9_]+$/.test(name)) continue;
     const params = raw.params && typeof raw.params === "object" ? raw.params : {};
     try {
+      // Android's logger only. There is no AEM reporter call here any more: Aggregated Event Measurement is Apple's
+      // aggregate side of tracking, and nothing on the iPhone ever gets this far (initMeta returns above).
       sdk.AppEventsLogger.logEvent(name, params);
-      if (Platform.OS === "ios") sdk.AEMReporterIOS.logAEMEvent(name, 0, undefined, params);
     } catch {
       // one bad event never stops the rest
     }

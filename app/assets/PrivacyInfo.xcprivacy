@@ -58,8 +58,13 @@
     </dict>
     <!-- The area's name the person saves on Plan Ease's day-starts card, typed or filled in by
          "Use my location". It is coarse location either way, which was already true of a typed
-         area. NOT PreciseLocation: the phone asks for approximate, a kilometre is all the fix
-         is worth, and nothing precise is ever stored or sent. -->
+         area.
+         STILL NOT PreciseLocation, and build 8.9.1 does not change that although the prompt now
+         opens on Precise (NSLocationDefaultAccuracyReduced is gone, so arrival reminders can be
+         watched against a real fix). What is COLLECTED is still only the area's NAME: no
+         coordinate is stored or sent, by this app or by anyone. Arrival reminders add nothing
+         here either — the system watches the place and shows the reminder, the app is not woken,
+         and X0 Bot is never told where the person is or that they arrived. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeCoarseLocation</string>
@@ -72,10 +77,12 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
-    <!-- Apple Health, read only, for a fitness bot the person made and switched on: daily step
-         totals and workouts (kind and minutes), kept 31 days and deleted when the switch goes
-         off. Nothing else is read, nothing is written, and none of it is ever used for ads or
-         sent to an AI service. Both rows come out again if iPhone health is cut. -->
+    <!-- Health: Apple Health read only, for a fitness bot the person made and switched on: daily
+         step totals, workouts (kind and minutes) and, from 8.9.1 and only if they turn it on,
+         MINUTES ASLEEP PER NIGHT. No sleep stages, no bed or wake times. Kept 31 days and
+         deleted when the switch goes off. Nothing else is read, nothing is written, and none of
+         it is ever used for ads or sent to an AI service. Both rows come out again if iPhone
+         health is cut. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeHealth</string>
@@ -88,6 +95,10 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
+    <!-- Fitness: the same daily step totals and workout minutes, and from 8.9.1 also the ones
+         Motion & Fitness counts when a person picks it instead of Apple Health. Apple's Fitness
+         type names the Motion and Fitness API itself, so this row covers both sources; the
+         payload is identical either way. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeFitness</string>
@@ -172,6 +183,12 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
+    <!-- Other User Content: what the person writes to their bots and their own plan. From 8.9.1
+         this row also covers the BUSY TIMES read from the iPhone's calendars (start, end and
+         all-day only — never an event's name, place, notes, people or calendar name) and the
+         items of the one Reminders list X0 Bot makes, which become Plan Ease to-dos and are kept
+         like typed ones. Busy times are replaced at each sync, deleted when the switch goes off,
+         and gone a day after each block ends. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
@@ -182,13 +199,22 @@
       <key>NSPrivacyCollectedDataTypePurposes</key>
       <array>
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <!-- Product Personalization too, which is what the App Privacy answers have always said
+             (docs/store-privacy.md §3). The bots' shared memory is written from what the person
+             tells them and is read back to answer in their terms, so this content does shape what
+             they are shown — "App Functionality" alone would have been the narrower answer, and
+             the two have to agree because the manifest ships in the binary. -->
+        <string>NSPrivacyCollectedDataTypePurposeProductPersonalization</string>
       </array>
     </dict>
+    <!-- Crash Data: Sentry. LINKED, as the App Privacy answers say. sentry.ts sets no user, but a
+         crash report carries the account's id in its breadcrumbs and tags often enough that "not
+         linked" is not an honest answer (the deletion screen says so too: deleteAccount.ts). -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeCrashData</string>
       <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
+      <true/>
       <key>NSPrivacyCollectedDataTypeTracking</key>
       <false/>
       <key>NSPrivacyCollectedDataTypePurposes</key>
@@ -197,11 +223,15 @@
         <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
       </array>
     </dict>
+    <!-- Performance Data: Sentry traces and the keyboard's counters. LINKED, for the same reason
+         as Crash Data above. Both purposes stay: App Functionality (a slow screen is fixed from
+         these) and Analytics. App Store Connect needs App Functionality adding beside Analytics,
+         which is the owner half of this change. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypePerformanceData</string>
       <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
+      <true/>
       <key>NSPrivacyCollectedDataTypeTracking</key>
       <false/>
       <key>NSPrivacyCollectedDataTypePurposes</key>
@@ -223,7 +253,73 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
+    <!-- BUILD 8.9.1: ABUSE AND FRAUD PREVENTION, and only that (perms2/SPEC.md 8, 8.7).
+         NSPrivacyTracking stays false above and every one of these three is Tracking false, which
+         is the whole point: none of it goes to Meta, an advertiser, analytics or
+         personalisation, and none of it is ever used to follow a person across apps or sites.
+
+         Device ID: the random number the app makes on first launch and keeps in AsyncStorage
+         (it resets if the app is reinstalled, and nothing about the device goes into making it),
+         and App Attest's key id. Apple's App Functionality purpose covers preventing fraud and
+         implementing security measures. NO IDFA, NO IDFV, and no id built from a device or
+         network trait: Apple names the network connection among its fingerprinting examples, so
+         the trust code reads nothing about the network at all. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeDeviceID</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
+    <!-- Other Diagnostic Data: the yes/no answers Apple's App Attest and DeviceCheck and
+         Google's Play Integrity give about whether this is the real app on a real device, and the
+         short reason code when one of them cannot answer. The ANSWER is kept, never the token.
+         Analytics is here too, matching docs/store-privacy.md, which has declared this type since
+         before the manifest did. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+      </array>
+    </dict>
+    <!-- Other Data Types: the two one-bit answers Plan Ease's calls need and nothing else —
+         whether a Focus (or Do Not Disturb) is on, so a call becomes a notice, and whether the
+         phone is in a car just before a call rings, so the call can wait. Never WHICH Focus,
+         never a place, never a speed. The Focus state lapses after 12 hours; the driving answer
+         is not kept past that call's own record. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
   </array>
+  <!-- REQUIRED-REASON APIs. NOTHING IS ADDED HERE IN 8.9.1, and that is a constraint on the code,
+       not an oversight. The App Group UserDefaults that X0 Bot's Focus Filter writes is already
+       covered by 1C8F.1 below, which is listed. The four reasons below — SystemBootTime 35F9.1,
+       DiskSpace E174.1, FileTimestamp C617.1 and the two ActiveKeyboards reasons — are each
+       declared for the app's own purposes, and NONE of them covers abuse or fraud prevention. So
+       the trust code may not touch any of those APIs: no boot time, no disk space, no file
+       timestamps, no keyboard list, and no IDFV. A phone test scans the trust files for every one
+       of those names (perms2/SPEC.md 8.2 rule 7, 10.5, 12). -->
   <key>NSPrivacyAccessedAPITypes</key>
   <array>
     <dict>

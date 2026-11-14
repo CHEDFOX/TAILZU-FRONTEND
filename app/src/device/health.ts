@@ -12,12 +12,17 @@ import { Platform } from "react-native";
 import { healthConnect, healthKit } from "./natives";
 import {
   HC_REFUSALS_BLOCKED, dayKey, durationMinutes, healthSync, kindFromHC, kindFromHK,
+  sleepByDayFrom, sleepSpansFromHC, sleepSpansFromHK,
   type HealthDeps, type HealthOutcome, type HealthPayload, type HealthReady, type WorkoutIn,
 } from "./healthCore";
+import { androidMotionHere, forgetMotion, prepareMotion, readMotion } from "./motion";
 
 const STEPS_HK = "HKQuantityTypeIdentifierStepCount";
 const WORKOUT_HK = "HKWorkoutTypeIdentifier";
+const SLEEP_HK = "HKCategoryTypeIdentifierSleepAnalysis";
 const HC_TYPES = ["Steps", "ExerciseSession"] as const;
+/** Sleep is asked for on its own (perms2 6.1), so the steps sheet is never shown again for it. */
+const HC_SLEEP = "SleepSession";
 const HC_DENIED_KEY = "perm.healthConnect.refusals";
 
 const lastAt = new Map<string, number>();
@@ -55,6 +60,28 @@ async function readIos(from: Date, to: Date, offsetMin: number) {
     day: dayKey(w.startDate, offsetMin), kind: kindFromHK(w.workoutActivityType), minutes: durationMinutes(w.duration),
   }));
   return { stepsByDay, workouts };
+}
+
+/** Sleep on the iPhone: its own authorization request, so a refusal leaves the steps grant alone. */
+async function prepareSleepIos(ask: boolean): Promise<HealthReady> {
+  const hk = healthKit("ios");
+  if (!hk?.queryCategorySamples) return "unavailable";
+  if (hk.isHealthDataAvailable && !hk.isHealthDataAvailable()) return "unavailable";
+  if (ask) { await hk.requestAuthorization({ toRead: [SLEEP_HK], toShare: [] }); return "ready"; }
+  try {
+    const status = await hk.getRequestStatusForAuthorization?.({ toRead: [SLEEP_HK] });
+    if (status === 1) return "denied";
+  } catch { /* can't tell: treat as asked */ }
+  return "ready";
+}
+
+/** Minutes asleep per night. The samples' values and spans only: no stage is sent, and in-bed and awake are not sleep. */
+async function readSleepIos(from: Date, to: Date, offsetMin: number): Promise<Map<string, number>> {
+  const hk = healthKit("ios");
+  if (!hk?.queryCategorySamples) throw new Error("no sleep in this binary");
+  const samples = await hk.queryCategorySamples(SLEEP_HK, { filter: { date: { startDate: from, endDate: to } }, limit: -1 });
+  // Overlapping sources (a Watch and the phone) are merged before summing, so one night is counted once.
+  return sleepByDayFrom(sleepSpansFromHK(samples), offsetMin);
 }
 
 // ------------------------------------------------------------------------------------------------------------- Android
@@ -117,23 +144,68 @@ async function readAndroid(from: Date, to: Date, offsetMin: number) {
   return { stepsByDay, workouts };
 }
 
+/** Sleep on Android: Health Connect's SleepSession, asked for on its own. Linked only when the build carries READ_SLEEP. */
+async function prepareSleepAndroid(ask: boolean): Promise<HealthReady> {
+  const hc = healthConnect("android");
+  if (!hc) return "unavailable";
+  if ((await hc.getSdkStatus()) !== 3) return "unavailable";
+  if (!(await hc.initialize())) return "unavailable";
+  let granted = await hc.getGrantedPermissions();
+  if (hcHas(granted, HC_SLEEP)) return "ready";
+  if (!ask) return "denied";
+  granted = await hc.requestPermission([{ accessType: "read" as const, recordType: HC_SLEEP }]);
+  return hcHas(granted, HC_SLEEP) ? "ready" : "denied";
+}
+
+async function readSleepAndroid(from: Date, to: Date, offsetMin: number): Promise<Map<string, number>> {
+  const hc = healthConnect("android");
+  if (!hc) throw new Error("no health connect");
+  if (!hcHas(await hc.getGrantedPermissions(), HC_SLEEP)) return new Map();
+  const timeRangeFilter = { operator: "between" as const, startTime: from.toISOString(), endTime: to.toISOString() };
+  const spans: { start: number; end: number }[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const res = await hc.readRecords(HC_SLEEP, { timeRangeFilter, pageSize: 200, ...(pageToken ? { pageToken } : {}) });
+    // A session's awake stretches come off it; nothing about a stage leaves this function.
+    spans.push(...sleepSpansFromHC(res.records));
+    pageToken = res.pageToken;
+    if (!pageToken) break;
+  }
+  return sleepByDayFrom(spans, offsetMin);
+}
+
 // ------------------------------------------------------------------------------------------------------------- the action
 /**
  * The health.sync action. `post` sends the payload to the server (callEndpoint in actions.ts); `everyMs` is the knob
  * health.syncEveryMs. Returns the outcome name only: no health value comes back.
  */
-export function runHealthSync(
-  action: { path: string; days?: number; ask?: boolean; enable?: boolean },
+export async function runHealthSync(
+  action: { path: string; days?: number; ask?: boolean; enable?: boolean; source?: "health" | "motion"; sleep?: boolean },
   post: (path: string, body: HealthPayload) => Promise<unknown>,
   everyMs: number,
 ): Promise<{ outcome: HealthOutcome }> {
   const ios = Platform.OS === "ios";
+  // THE SAME SUMMARY, A DIFFERENT SOURCE (perms2 5.1). With source "motion" the phone's own step counter stands in for Apple
+  // Health — one bot has one source at a time, which the server enforces — and Motion & Fitness is the grant that is asked for.
+  const motion = action.source === "motion";
+  // THE BINARY SAYS WHETHER ANDROID HAS IT, NOT THE PLATFORM. From 8.9.1 Android's own step counter is a source too, but only
+  // in a build whose TULMI_ANDROID_MOTION switch put ACTIVITY_RECOGNITION and the sensor code in — and every 8.9.1 binary
+  // carries the functions, so only `abilities().motion` (motion.ts's androidMotionHere) can tell. Anywhere else this is simply
+  // unavailable, never quietly answered from Health Connect, because the days would then go up labelled as something they
+  // are not.
+  const noMotionHere = motion && !ios && !androidMotionHere();
+  // SWITCHING MOTION OFF DELETES THE PHONE'S OWN DAYS TOO (perms2 5.1, "Switching it off deletes them"). Android keeps a ledger
+  // because its step counter is a since-boot total with no history; it goes in the same breath as the server's rows, whatever
+  // the sync below then answers. The iPhone keeps none and the native side answers true.
+  if (motion && action.enable === false) await forgetMotion();
   const deps: HealthDeps = {
     now: () => new Date(),
     offsetMin: (at) => -at.getTimezoneOffset(),
-    prepare: ios ? prepareIos : prepareAndroid,
-    read: ios ? readIos : readAndroid,
+    prepare: noMotionHere ? async () => "unavailable" : motion ? prepareMotion : ios ? prepareIos : prepareAndroid,
+    read: motion ? readMotion : ios ? readIos : readAndroid,
     post,
+    // Motion has no sleep of its own: sleep rides on Apple Health or Health Connect only.
+    ...(motion ? {} : { prepareSleep: ios ? prepareSleepIos : prepareSleepAndroid, readSleep: ios ? readSleepIos : readSleepAndroid }),
     everyMs,
     lastAt,
   };

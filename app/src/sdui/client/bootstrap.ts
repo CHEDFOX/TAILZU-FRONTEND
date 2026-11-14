@@ -12,6 +12,7 @@ import { post, withRetry } from "./http";
 import { buildCapabilities } from "./capabilities";
 import { screenCache } from "./screens";
 import { clearLocal } from "../local";
+import { forgetArrival } from "../../device/arrival";
 
 /** The last bootstrap's key on disk (the persisted cache is described in screens.ts). */
 const BOOT_KEY = (base: string) => `tulmi.cache.boot:${base}`;
@@ -107,6 +108,15 @@ export async function bootstrap(): Promise<BootstrapResponse> {
   syncSounds((b.flags as Record<string, unknown> | undefined)?.["bots.sounds"]);
   knobsPrimed = true;
   lastBootstrapAt = Date.now();
+  // ABUSE AND FRAUD PREVENTION, IF THE SERVER ASKED (docs: perms2 8.5). Present only when the server wants a check now; it runs
+  // in the background, once per challenge, shows nothing and asks the person for nothing, and a phone whose binary cannot do a
+  // step simply does not do it. Never awaited: the app is already drawing.
+  if (b.trust) {
+    const ask = b.trust;
+    void import("../../device/trust")
+      .then((t) => t.runTrust(ask, (path, body) => post(path, body)))
+      .catch(() => { /* nothing to show and nothing to retry */ });
+  }
   return b;
 }
 
@@ -145,6 +155,11 @@ export function bootstrapIsFresh(b: Pick<BootstrapResponse, "cacheTtlSeconds"> |
 export async function forgetAccountData(): Promise<void> {
   screenCache.clear();
   lastBootstrapAt = 0;
+  // THE PLACES THE PHONE WAS WATCHING GO WITH THE ACCOUNT. The pending x0.arrive.* notifications hold the item's
+  // title and its place and would otherwise still fire — for a deleted account, or for the next person on this
+  // phone. NOT awaited: it ends in a native call (an Android geofence task that settles on success or failure and
+  // nothing else), and the keyboard's token and the storage sweep below may never wait on that.
+  void forgetArrival();
   // WHAT THIS PHONE REMEMBERED FOR THIS PERSON (pure/SPEC.md 2.9, 5.1: `local` is cleared on sign-out).
   //
   // The `signOut` action cleared it, and that is only one of the ways a session ends: a revoked session, an

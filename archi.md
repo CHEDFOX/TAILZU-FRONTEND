@@ -34,6 +34,8 @@ app/                      the Expo app
 │  ├─ tulmi-share/        share-in: the Android share intent, and the iOS share extension's App Group hand-off
 │  ├─ tulmi-stream/       live dictation over a WebSocket (native mic capture)
 │  └─ withPrivacyManifest.js   copies assets/PrivacyInfo.xcprivacy into the iOS app
+├─ plugins/               config plugins for the generated native projects: withNoMetaIos.js (no Meta and no tracking
+│                         prompt in the iPhone binary), withNoWebrtcFgs.js, withWebrtcPin.js
 └─ targets/               iOS extensions (@bacons/apple-targets)
    ├─ keyboard/           the iOS keyboard extension (+ ci/: the simulator harness)
    ├─ share/              the share extension
@@ -94,7 +96,8 @@ src/
 ├─ quickActions/          the app icon's long-press items
 ├─ share/                 share-in: files from other apps to the backend, then the share screen
 ├─ deeplinks/             tulmi:// and universal-link parsing
-├─ device/                device signals (microphone, keyboard enabled / full access); what the binary can do that an
+├─ device/                device signals (microphone, keyboard enabled / full access; signalsCore.ts holds the one rule
+│                         about which keyboard reading may leave the phone); what the binary can do that an
 │                         update cannot add (binaryCore.ts: Time Sensitive pushes, the widget's steps, the live call)
 └─ telemetry/             Sentry, PostHog analytics, Meta ads
 ```
@@ -141,7 +144,7 @@ mid-open, two taps, the warm-up still opening, the app going behind something wh
 | Deep links | `src/deeplinks/router.ts`; handled in `shell/hooks/useStartup.ts`; allowed bare actions in `useDeepLinkActions.ts` |
 | Push notifications | `src/notifications/` |
 | Share-in | `src/share/`, `modules/tulmi-share/`, `targets/share/` |
-| Telemetry (Sentry, PostHog, Meta) | `src/telemetry/`; started in `shell/hooks/useStartup.ts` |
+| Telemetry (Sentry, PostHog, Meta on Android only) | `src/telemetry/`; started in `shell/hooks/useStartup.ts`. Meta ships on Android alone: `plugins/withNoMetaIos.js` and `package.json`'s `expo.autolinking.ios.exclude` keep the SDK, the tracking prompt and every Facebook key out of the iPhone binary, and `meta.ts` leaves at once on iOS |
 | Onboarding character (Blip) | `src/onboard/` |
 | Launch animation | `src/launch/` |
 | Live dictation protocol | `docs/STREAMING.md`, `modules/tulmi-stream/` |

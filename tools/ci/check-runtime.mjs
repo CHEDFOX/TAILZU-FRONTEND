@@ -51,16 +51,71 @@ function runtimeString() {
  * modules are reached through src/device/natives.ts, so an older binary finds
  * nothing and declares nothing.
  */
-function androidHealth() {
+function androidSwitch(name) {
   const path = join(app, "eas.json");
   if (!exists(path)) return {};
   const profiles = json(path).build ?? {};
   const out = {};
-  for (const name of Object.keys(profiles).sort()) {
-    const value = (profiles[name]?.env?.TULMI_ANDROID_HEALTH ?? "").trim().toLowerCase();
-    out[name] = value === "on" ? "on" : "off";
+  for (const profile of Object.keys(profiles).sort()) {
+    const value = (profiles[profile]?.env?.[name] ?? "").trim().toLowerCase();
+    out[profile] = value === "on" ? "on" : "off";
   }
   return out;
+}
+
+const androidHealth = () => androidSwitch("TULMI_ANDROID_HEALTH");
+
+/**
+ * The Android SLEEP build switch, per profile (perms2/SPEC.md 10.1). Sleep is
+ * its own line on Play's Health Connect form with its own answer, so it has its
+ * own switch: steps and exercise can ship the day they are approved without
+ * waiting for sleep, and sleep the day it is without holding steps back.
+ *
+ * It only means anything with TULMI_ANDROID_HEALTH on — app.config.ts ANDs the
+ * two — so a profile with sleep on and health off is a mistake, not a shape:
+ * whoever wrote it meant to ship sleep and would get a build with neither.
+ * That is refused below, in --write as well as in a check, so the lock can never
+ * record it.
+ */
+const androidHealthSleep = () => androidSwitch("TULMI_ANDROID_HEALTH_SLEEP");
+
+/**
+ * The three 8.9.1 Android switches, per profile (perms2/SPEC.md 2, 5, 7). Each
+ * decides whether a permission is in the merged manifest and, for motion and
+ * arrival, whether Play services location is in the binary at all — none of which
+ * a package version or a module function shows, so the lock records them. A
+ * profile flipped without the lock being refreshed is caught here.
+ */
+const androidCalendar = () => androidSwitch("TULMI_ANDROID_CALENDAR");
+const androidMotion = () => androidSwitch("TULMI_ANDROID_MOTION");
+const androidArrival = () => androidSwitch("TULMI_ANDROID_ARRIVAL");
+
+/**
+ * Profiles that ship arrival reminders. REFUSED outside the proof profiles until
+ * Play has approved the background-location declaration: a release carrying
+ * ACCESS_BACKGROUND_LOCATION without it is refused by Play, and the whole point
+ * of giving arrival its own switch is that it can never hold the release up. When
+ * the declaration is approved, delete this and its call.
+ *
+ * `n0` IS ALLOWED, and has to be: it is the on-device proof build, it is never
+ * submitted, and the demo video Play's declaration requires can only be recorded
+ * on a build that has the feature (backend docs/owner-8.9.1.md 1.2). Add
+ * an internal-distribution profile here if one is made for that.
+ */
+const ARRIVAL_PROOF_PROFILES = new Set(["n0"]);
+
+function arrivalOutsideN0(cur) {
+  return Object.entries(cur.androidArrival ?? {})
+    .filter(([profile, value]) => value === "on" && !ARRIVAL_PROOF_PROFILES.has(profile))
+    .map(([profile]) => profile);
+}
+
+/** Profiles that ask for sleep without health. Refused: see androidHealthSleep. */
+function sleepWithoutHealth(cur) {
+  const health = cur.androidHealth ?? {};
+  return Object.entries(cur.androidHealthSleep ?? {})
+    .filter(([profile, value]) => value === "on" && health[profile] !== "on")
+    .map(([profile]) => profile);
 }
 
 /**
@@ -134,6 +189,10 @@ function compute(prev) {
     reactNative: rn ?? null,
     reanimatedStaticFlags: json(join(app, "package.json")).reanimated?.staticFeatureFlags ?? {},
     androidHealth: androidHealth(),
+    androidHealthSleep: androidHealthSleep(),
+    androidCalendar: androidCalendar(),
+    androidMotion: androidMotion(),
+    androidArrival: androidArrival(),
     // Hand-kept, so --write carries it over instead of rebuilding it: nothing
     // in the tree tells an addition the running binary does not have from a
     // package that shipped with it. See the field's note below.
@@ -146,8 +205,39 @@ function compute(prev) {
 
 const prev = exists(lockPath) ? json(lockPath) : null;
 
+/** Refused in --write as well as in a check, so the lock can never record it. */
+function refuseSleepWithoutHealth(cur) {
+  const wrong = sleepWithoutHealth(cur);
+  if (!wrong.length) return;
+  for (const profile of wrong) {
+    console.log(
+      `::error::app/eas.json's "${profile}" profile sets TULMI_ANDROID_HEALTH_SLEEP on with ` +
+        "TULMI_ANDROID_HEALTH off. Sleep comes from Health Connect, so that build would carry neither. " +
+        "Turn health on for that profile, or sleep off."
+    );
+  }
+  process.exit(1);
+}
+
+/** Refused in --write as well as in a check, so the lock can never record it. */
+function refuseArrivalOutsideN0(cur) {
+  const wrong = arrivalOutsideN0(cur);
+  if (!wrong.length) return;
+  for (const profile of wrong) {
+    console.log(
+      `::error::app/eas.json's "${profile}" profile sets TULMI_ANDROID_ARRIVAL on. Arrival reminders ` +
+        "need ACCESS_BACKGROUND_LOCATION, which Play refuses in a release without its approved " +
+        "background-location declaration (backend docs/owner-8.9.1.md). Only the proof profiles " +
+        `(${[...ARRIVAL_PROOF_PROFILES].join(", ")}) may carry it until that is answered.`
+    );
+  }
+  process.exit(1);
+}
+
 if (process.argv.includes("--write")) {
   const cur = compute(prev);
+  refuseSleepWithoutHealth(cur);
+  refuseArrivalOutsideN0(cur);
   writeFileSync(lockPath, JSON.stringify(cur, null, 2) + "\n");
   console.log(`Wrote ${lockPath} (runtime ${cur.runtime}, ${Object.keys(cur.packages).length} native packages).`);
   process.exit(0);
@@ -158,6 +248,8 @@ if (!prev) {
   process.exit(1);
 }
 const cur = compute(prev);
+refuseSleepWithoutHealth(cur);
+refuseArrivalOutsideN0(cur);
 const bad = []; // existing native code changed: needs a runtime bump
 const add = []; // additions or source-only change: lock refresh only
 if (cur.expoSdk !== prev.expoSdk) bad.push(`Expo SDK changed ${prev.expoSdk} -> ${cur.expoSdk}.`);
@@ -165,6 +257,17 @@ if (cur.reactNative !== prev.reactNative) bad.push(`react-native changed ${prev.
 if (JSON.stringify(cur.reanimatedStaticFlags) !== JSON.stringify(prev.reanimatedStaticFlags)) bad.push("Reanimated static feature flags changed.");
 if (JSON.stringify(cur.androidHealth) !== JSON.stringify(prev.androidHealth ?? {})) {
   add.push(`The Android health build switch changed: ${JSON.stringify(cur.androidHealth)}.`);
+}
+if (JSON.stringify(cur.androidHealthSleep) !== JSON.stringify(prev.androidHealthSleep ?? {})) {
+  add.push(`The Android sleep build switch changed: ${JSON.stringify(cur.androidHealthSleep)}.`);
+}
+// The three 8.9.1 Android switches, each on its own: a flip is an addition (the
+// code is reached through src/device/natives.ts, so an older binary finds
+// nothing), and a lock refresh is all it needs.
+for (const k of ["androidCalendar", "androidMotion", "androidArrival"]) {
+  if (JSON.stringify(cur[k]) !== JSON.stringify(prev[k] ?? {})) {
+    add.push(`The ${k} build switch changed: ${JSON.stringify(cur[k])}.`);
+  }
 }
 for (const [n, v] of Object.entries(prev.packages)) {
   if (!(n in cur.packages)) bad.push(`Native package ${n} was removed.`);

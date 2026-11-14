@@ -104,6 +104,9 @@ export function useAuthSession({
         // the phone and showed the sign-in page to someone still signed in.
         if (e === "SIGNED_OUT" && SUPABASE_CONFIGURED) {
           endFlowSession();
+          // Nor may a place the phone was watching still buzz for an account that is gone: forgetAccountData unarms
+          // them (the pending x0.arrive.* notifications carry the item's title and its place), and this branch is the
+          // one event that always arrives, so one call there covers every path. Twice at once cleared nothing extra.
           void forgetAccountData();
           outbox.clearAll();
           resetAnalytics();

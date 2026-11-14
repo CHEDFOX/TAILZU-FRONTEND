@@ -12,6 +12,7 @@ import { leaveVoice } from "../voice/voiceLive";
 import { leaveSpeech } from "../voice/speech";
 // The live call's rules file, never the call itself: its client is native and is not in an older binary (callRealtime.ts).
 import { leaveCall } from "../voice/callRealtimeCore";
+import { endCall as endRoomCall } from "../call";
 import type { ScreenResponse } from "../types";
 import { num } from "../knobs";
 import { noteScreen, screenOff } from "../safety";
@@ -39,7 +40,9 @@ export function ScreenHost({
   // (callRealtimeCore.ts) — stops its sound, throws away its recording and stops its upload (media.ts), ends its voice session
   // (voiceLive.ts) and stops the words its call was saying (speech.ts). A quiet live reload keeps the Store, and so the session:
   // a voice chat, and a call, live through the feed updating.
-  useEffect(() => () => { leaveCall(store); leaveMedia(store); leaveVoice(store); leaveSpeech(store); }, [store]);
+  // Leaving the screen lets go of everything it was holding — including one of our own calls, whose microphone must never be left
+  // open behind a screen nobody is looking at (TAILZU-BACKEND/docs/rooms.md).
+  useEffect(() => () => { leaveCall(store); endRoomCall(); leaveMedia(store); leaveVoice(store); leaveSpeech(store); }, [store]);
   // Memoised, because it is the identity every RenderNode in the tree reads.
   // Rebuilt each render, it made a single parent re-render — a toast, a
   // foreground bootstrap, a loading flag — walk and re-render the WHOLE screen,

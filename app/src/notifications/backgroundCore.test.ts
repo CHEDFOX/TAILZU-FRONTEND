@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isPress, noticeState, nudgeOf, payloadData } from "./backgroundCore.ts";
+import { callCheckBody, callCheckPath, isPress, noticeState, nudgeOf, payloadData } from "./backgroundCore.ts";
 import { NLOOK_LIMITS } from "../native/looksTable.ts";
 import { bodyBytes } from "../native/looksCore.ts";
 
@@ -76,5 +76,36 @@ describe("the Android notice's push", () => {
       vars: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, "क".repeat(400)])),
     }, "bu.base")!;
     assert.ok(bodyBytes(s) <= NLOOK_LIMITS.activityBodyBytes);
+  });
+});
+
+// THE PRE-RING CHECK (docs: perms2 5.3): two yes-or-no answers about this phone, on that call's own route, and nothing else.
+describe("the pre-ring check", () => {
+  it("answers only on that call's own route, and only for a real call id", () => {
+    assert.equal(callCheckPath("call_9aZ-1"), "/v1/botsapp/plan/calls/call_9aZ-1/check");
+    for (const bad of ["", "Call Nine", "../../admin", "a/b", "x".repeat(70), null, 7]) assert.equal(callCheckPath(bad), null);
+  });
+
+  it("is a nudge only when the push names a call and something to answer", () => {
+    assert.deepEqual(nudgeOf({ data: { kind: "plan_call_check", call: "c1", want: ["driving", "focus"] } }),
+      { kind: "callCheck", path: "/v1/botsapp/plan/calls/c1/check", want: ["driving", "focus"] });
+    // only the two known questions, in a fixed order, so a push can never ask for a new kind of answer
+    assert.deepEqual(nudgeOf({ data: { kind: "plan_call_check", call: "c1", want: ["focus", "location", "contacts"] } }),
+      { kind: "callCheck", path: "/v1/botsapp/plan/calls/c1/check", want: ["focus"] });
+    assert.equal(nudgeOf({ data: { kind: "plan_call_check", call: "c1", want: [] } }), null);
+    assert.equal(nudgeOf({ data: { kind: "plan_call_check", call: "c1", want: ["location"] } }), null);
+    assert.equal(nudgeOf({ data: { kind: "plan_call_check", want: ["focus"] } }), null);
+    assert.equal(nudgeOf({ data: { kind: "plan_call_check", call: "c1" } }), null);
+  });
+
+  it("sends only what was asked for and only what the phone could really tell", () => {
+    assert.deepEqual(callCheckBody(["driving", "focus"], { driving: true, focus: false }), { driving: true, focus: false });
+    // a question the phone cannot answer is left out: no answer at all is fine, and the call rings as today
+    assert.deepEqual(callCheckBody(["driving", "focus"], { driving: null, focus: true }), { focus: true });
+    assert.deepEqual(callCheckBody(["driving"], { driving: null, focus: true }), {});
+    assert.deepEqual(callCheckBody(["focus"], { driving: true, focus: null }), {});
+    // nothing about where the phone is, or which Focus, can be in the body at all
+    const body = callCheckBody(["driving", "focus"], { driving: false, focus: true });
+    assert.deepEqual(Object.keys(body).sort(), ["driving", "focus"]);
   });
 });

@@ -52,15 +52,23 @@ import { voiceLive, voiceStop } from "./voice/voiceLive";
 import { voiceCall, voiceCallSet } from "./voice/callRealtime";
 import { speakLine } from "./voice/speech";
 import { locationGranted, locationRequest, runLocateArea } from "../device/locate";
+// The phone's own things, build 8.9.1 (docs: perms2): each one action, each reaching the native module only through
+// device/natives.ts, so an older binary finds nothing and says "unavailable".
+import { runCalendarEditor, runCalendarSync } from "../device/calendar";
+import { runRemindersSync } from "../device/reminders";
+import { runFocusSync } from "../device/focus";
+import { arrivalBackgroundGranted, arrivalBackgroundRequest, hasArrival, runArrivalSync } from "../device/arrival";
+import { hasMotion, motionGranted, motionRequest, watchDriving } from "../device/motion";
 // Vocab 2 (pure/SPEC.md 2.2, 2.9, 2.10): the kernel's condition shape, the phone's own values, and the options
 // `callEndpoint` gained. Each is reached only by an action that asks for it, so a screen that does not pays nothing.
 import { LIMITS, compileProp, isEvaluable, networkPathOk, runProp, tryCompileExpr } from "./kernel/index.ts";
 import type { CompiledProp } from "./kernel/index.ts";
 import { scopeOf } from "./blocks/scope";
 import { permCaps } from "../device/permCaps";
-import { LOCATION_CAPABILITY } from "./types";
+import { ARRIVAL_CAPABILITY, LOCATION_CAPABILITY, MOTION_CAPABILITY } from "./types";
 import { clearLocal, removeLocal, setLocal } from "./local";
 import { applyOptimistic, progressSink } from "./client/endpointCore";
+import { runCallJoin, runCallLeave, runCallSet } from "./call";
 import type { CallOptions } from "./client/endpointCore";
 import { normalizePresentation } from "./shell/blocks/presentation";
 import { noteBadNode } from "./safety";
@@ -394,6 +402,15 @@ function callOptions(
  * does not exist.
  */
 const hasLocation = (): boolean => permCaps().includes(LOCATION_CAPABILITY);
+/** Motion & Fitness is in this binary only when the module's functions AND NSMotionUsageDescription are (perms2 9.2). */
+const hasMotionCap = (): boolean => permCaps().includes(MOTION_CAPABILITY) && hasMotion();
+/**
+ * Arrival reminders are in this binary only when the module's functions AND the binary's own ability are (perms2 9.2). With
+ * TULMI_ANDROID_ARRIVAL off there is no geofencing in the Android binary at all, so the capability is absent and
+ * "backgroundLocation" answers `unsupported` — which is the truth, and which falls back to onDenied, so a screen written before
+ * this behaves exactly as it does today.
+ */
+const hasArrivalCap = (): boolean => permCaps().includes(ARRIVAL_CAPABILITY) && hasArrival();
 
 async function refuseBlock(block: string, action: unknown, ctx: Ctx): Promise<void> {
   try { noteBadNode(`block:${block}`); } catch { /* reporting is never the next error */ }
@@ -858,6 +875,31 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
       subscribeHub()?.add(ctx.screenId ?? "", action);
       break;
     }
+    // ONE OF OUR OWN CALLS (the `call` block, TAILZU-BACKEND/docs/rooms.md). The block takes a seat, holds the connection, and writes
+    // who is in the call into the screen's state; the screen's own words, tiles and buttons are expressions over that. The seat is a
+    // bearer and never reaches the state. Leaving the screen hangs up (ScreenHost), so a microphone is never left open behind a screen.
+    case "call.join": {
+      if (!ctx.blocks?.includes("call")) { await refuseBlock("call", action, ctx); break; }
+      const a = action as unknown as import("./call").JoinAction;
+      await runCallJoin(a, {
+        post: (path, body) => callEndpoint("POST", path, body),
+        write: (path, value) => ctx.store.set(path, value),
+        screenId: ctx.screenId ?? "",
+        run: (ref) => runAction(ref as ActionRef, ctx),
+      });
+      break;
+    }
+    case "call.set": {
+      if (!ctx.blocks?.includes("call")) { await refuseBlock("call", action, ctx); break; }
+      const a = action as unknown as { op: "mic" | "cam" | "speaker" | "flip"; value?: boolean };
+      await runCallSet(a.op, a.value);
+      break;
+    }
+    case "call.leave": {
+      if (!ctx.blocks?.includes("call")) { await refuseBlock("call", action, ctx); break; }
+      await runCallLeave();
+      break;
+    }
     case "local.remove": {
       if (!ctx.blocks?.includes("local")) { await refuseBlock("local", action, ctx); break; }
       const r = removeLocal((action as { path: string }).path);
@@ -957,6 +999,29 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
             blocked = r.blocked;
             break;
           }
+          case "motion": {
+            // MOTION & FITNESS (perms2 5.2), in a binary that carries it: on the iPhone the usage string (calling CoreMotion
+            // without it crashes), on Android the ACTIVITY_RECOGNITION permission behind TULMI_ANDROID_MOTION and a phone with
+            // a step counter. So the capability — not a guess — is the test, and `unsupported` is the honest answer anywhere
+            // else. Steps for a fitness bot go through health.sync; this is the grant on its own, for "Wait while I'm driving".
+            if (!hasMotionCap()) { unsupported = true; break; }
+            const m = await motionRequest();
+            granted = m.granted;
+            blocked = m.blocked;
+            break;
+          }
+          case "backgroundLocation": {
+            // ANDROID'S SECOND STEP ("Allow all the time"), and ANDROID ONLY: on the iPhone the system itself watches the
+            // region, so there is nothing of the kind to ask for and the honest answer is `unsupported` rather than a denial.
+            //
+            // It is a REQUEST, not openSettings: on API 30+ the system opens the app's own location page and answers when the
+            // person comes back, so the screen learns whether they granted it. Only `blocked` falls back to plain openSettings.
+            if (Platform.OS !== "android" || !hasArrivalCap()) { unsupported = true; break; }
+            const b = await arrivalBackgroundRequest();
+            granted = b === "granted";
+            blocked = b === "blocked";
+            break;
+          }
         }
         // onBlocked and onUnsupported both fall back to onDenied, so a screen that has not been taught the
         // difference behaves exactly as it does today.
@@ -1005,6 +1070,13 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
           // from a binary that has no location module at all is not a no — it is `unsupported`, so a screen says
           // "this build cannot" instead of offering Settings for a switch that is not there.
           case "location": granted = await locationGranted(); unsupported = !granted && !hasLocation(); break;
+          // The same third answer: a binary without the motion string cannot grant it at all, and reading never prompts.
+          case "motion": granted = hasMotionCap() && motionGranted(); unsupported = !granted && !hasMotionCap(); break;
+          // Reading never prompts. iPhone: nothing of the kind exists, so `unsupported`.
+          case "backgroundLocation":
+            if (Platform.OS !== "android" || !hasArrivalCap()) { unsupported = true; break; }
+            granted = await arrivalBackgroundGranted();
+            break;
           // None is built in — see requestPermission for why.
           case "contacts":
           case "calendar":
@@ -1068,6 +1140,92 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
       else if (r.outcome === "blocked") await runAction(action.onBlocked ?? action.onDenied, ctx);
       else if (r.outcome === "unavailable") await runAction(action.onUnavailable ?? action.onError, ctx);
       else if (r.outcome === "error") await runAction(action.onError, ctx);
+      break;
+    }
+
+    // THE PHONE'S OWN THINGS, BUILD 8.9.1 (docs: perms2). The same shape as the three above: one action each, nothing raw in
+    // state, each path pinned, and the screen draws the row only when the binary said CalendarAdd1 / CalendarRead1 /
+    // Reminders1 / Focus1 / Arrival1 (device/permCaps.ts). Analytics carry the outcome name and nothing else.
+    case "calendar.editor": {
+      // No permission and no card: the phone's own editor opens, and the phone's calendar app makes the event (perms2 2.2).
+      const r = await runCalendarEditor(action);
+      trackEvent("calendar_editor", { outcome: r.outcome });
+      if (r.outcome === "saved") await runAction(action.onSaved, ctx);
+      else if (r.outcome === "cancel") await runAction(action.onCancel, ctx);
+      // "opened" is all Android can honestly say (the insert screen's result code is unreliable), so it never falls back to
+      // onSaved: a toast saying "Added to your calendar." after a tap the person then cancelled would be a false claim.
+      else if (r.outcome === "opened") await runAction(action.onOpened, ctx);
+      else if (r.outcome === "unavailable") await runAction(action.onUnavailable ?? action.onError, ctx);
+      else await runAction(action.onError, ctx);
+      break;
+    }
+    case "calendar.sync": {
+      // Busy times only, built in Swift and POSTed to the pinned path (device/calendar.ts, calendarCore.ts).
+      const r = await runCalendarSync(
+        action,
+        (path, body) => callEndpoint("POST", path, body),
+        num("calendar.syncEveryMs", 3600000),
+      );
+      if (r.outcome !== "skipped") trackEvent("calendar_sync", { outcome: r.outcome });
+      if (r.outcome === "synced") await runAction(action.onSynced, ctx);
+      else if (r.outcome === "denied") await runAction(action.onDenied, ctx);
+      else if (r.outcome === "blocked") await runAction(action.onBlocked ?? action.onDenied, ctx);
+      else if (r.outcome === "unavailable") await runAction(action.onUnavailable ?? action.onError, ctx);
+      else if (r.outcome === "error") await runAction(action.onError, ctx);
+      break;
+    }
+    case "reminders.sync": {
+      // The X0 Bot list only, in two requests (device/reminders.ts, remindersCore.ts). No item text reaches state.
+      const r = await runRemindersSync(
+        action,
+        (path, body) => callEndpoint("POST", path, body),
+        num("reminders.syncEveryMs", 900000),
+      );
+      if (r.outcome !== "skipped") trackEvent("reminders_sync", { outcome: r.outcome });
+      if (r.outcome === "synced") await runAction(action.onSynced, ctx);
+      else if (r.outcome === "denied") await runAction(action.onDenied, ctx);
+      else if (r.outcome === "blocked") await runAction(action.onBlocked ?? action.onDenied, ctx);
+      else if (r.outcome === "unavailable") await runAction(action.onUnavailable ?? action.onError, ctx);
+      else if (r.outcome === "error") await runAction(action.onError, ctx);
+      break;
+    }
+    case "focus.sync": {
+      // On or off, and the filter's own choice. Never which Focus (device/focus.ts, focusCore.ts). No permission, no prompt.
+      const r = await runFocusSync(action, (path, body) => callEndpoint("POST", path, body));
+      trackEvent("focus_sync", { outcome: r.outcome });
+      if (r.outcome === "synced" || r.outcome === "none") await runAction(action.onSynced, ctx);
+      else await runAction(action.onError, ctx);
+      break;
+    }
+    case "motion.watch": {
+      // "WAIT WHILE I'M DRIVING", THE PERSON'S OWN SWITCH, BOTH WAYS (perms2 5.2). Nothing is read and nothing is sent: this
+      // only tells the phone whether it may watch for getting into a car. ANDROID needs both ends of it — on registers the two
+      // IN_VEHICLE transitions, which is the only way it can answer the pre-ring check at all, and OFF unregisters and deletes
+      // the one line it kept, so with the switch off nothing about driving is on the phone. The iPhone reads its own motion
+      // history at question time, so there the native side answers true and does nothing.
+      const on = (action as { on?: unknown }).on === true;
+      const a = action as { onDone?: unknown; onUnsupported?: unknown };
+      const ok = hasMotionCap() ? await watchDriving(on) : false;
+      // The outcome name and nothing else, like every other action here.
+      const r = { outcome: ok ? (on ? "watching" : "stopped") : "unsupported" };
+      trackEvent("motion_watch", { outcome: r.outcome });
+      await runAction((ok ? a.onDone : (a.onUnsupported ?? a.onDone)) as any, ctx);
+      break;
+    }
+    case "arrival.sync": {
+      // The phone watches the places itself; nothing is posted and no arrival is ever reported (device/arrivalCore.ts).
+      const r = await runArrivalSync(action);
+      trackEvent("arrival_sync", { outcome: r.outcome });
+      if (r.outcome === "armed" || r.outcome === "cleared") await runAction(action.onArmed, ctx);
+      // ANDROID'S SECOND STEP, and not a refusal: precise location is held and "Allow all the time" is still owed, which the
+      // server's own card explains before anything is asked. Falling back to onApproximate and then onDenied keeps a screen
+      // that has not been taught the difference behaving as it does today; the iPhone never produces the word.
+      else if (r.outcome === "background") await runAction(action.onBackground ?? action.onApproximate ?? action.onDenied, ctx);
+      else if (r.outcome === "approximate") await runAction(action.onApproximate ?? action.onDenied, ctx);
+      else if (r.outcome === "denied") await runAction(action.onDenied, ctx);
+      else if (r.outcome === "blocked") await runAction(action.onBlocked ?? action.onDenied, ctx);
+      else if (r.outcome === "unavailable") await runAction(action.onUnavailable ?? action.onError, ctx);
+      else await runAction(action.onError, ctx);
       break;
     }
 

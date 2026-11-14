@@ -11,9 +11,88 @@ expoModule {
   canBePublished false
 }
 
+// THE TWO 8.9.1 SOURCE-SET SWITCHES (perms2/SPEC.md 5, 7; perms2/ANDROID-WIRING.md).
+//
+// The driving check and the geofences need com.google.android.gms:play-services-location, which is
+// NOT a transitive dependency of anything in this tree (expo-store-review brings
+// play-services-base, expo-camera and expo-dev-launcher bring play-services-code-scanner,
+// expo-tracking-transparency brings play-services-ads-identifier — none brings location). So the
+// dependency is added only when one of the two switches is on, and the code that names it lives in
+// a source set chosen by the same switch: src/motion/java or src/motionOff/java, src/arrival/java or
+// src/arrivalOff/java. Each pair holds the SAME object with the same function names, so
+// TulmiPermsModule.kt is one file for every value of the switches and nothing in it is conditional.
+//
+// Why not one `if` in Kotlin: a build with the switch off has no Play services location class at
+// all, so code naming it would not compile, and code that guarded the call at runtime would still
+// link the library. Off has to mean the library is not in the binary — the same all-or-nothing rule
+// tools/ci/check-health-switch.mjs enforces for Health Connect.
+//
+// THE SWITCHES ARE READ FROM gradle.properties, NOT FROM THE ENVIRONMENT, and that is the whole
+// point of the withGradleProperties mod in the config plugin. The manifest's receivers are written
+// at PREBUILD time, by the plugin, from app.config.ts's env; Gradle runs later and may run with a
+// different environment entirely (a developer who prebuilt with the switch on, then ran ./gradlew
+// with it unset). Reading the env here would then leave TulmiArrivalReceiver declared in the
+// manifest — exported=false, with a BOOT_COMPLETED filter — while src/arrivalOff was compiled
+// instead, and the first reboot would crash the app with ClassNotFoundException. The plugin writes
+// these two properties into android/gradle.properties in the same pass that writes the receivers,
+// so the manifest and the source sets can never disagree.
+def tulmiAndroidMotion = (project.findProperty("tulmi.androidMotion") ?: "").toString().trim().toLowerCase() == "on"
+def tulmiAndroidArrival = (project.findProperty("tulmi.androidArrival") ?: "").toString().trim().toLowerCase() == "on"
+
 android {
   namespace "expo.modules.tulmiperms"
   defaultConfig {
     minSdkVersion 24
   }
+  sourceSets {
+    main {
+      java.srcDirs += [
+        tulmiAndroidMotion ? 'src/motion/java' : 'src/motionOff/java',
+        tulmiAndroidArrival ? 'src/arrival/java' : 'src/arrivalOff/java',
+      ]
+    }
+  }
+}
+
+dependencies {
+  // PLAY INTEGRITY, for abuse and fraud prevention only (perms2/SPEC.md 8.5, TulmiTrust.kt).
+  // It asks Google whether a request comes from the real X0 Bot, installed by Play, on a real
+  // device, and the server keeps only that answer. Google's terms forbid using it to fingerprint
+  // or track a user or a device, and nothing here does: there is no device id, no SSAID and no
+  // advertising id anywhere in this module.
+  //
+  // WHAT 1.6.0 BRINGS IN, checked against the published POM and each AAR's manifest: three
+  // transitive libraries — play-services-basement 18.9.0, play-services-tasks 18.2.0 and
+  // com.google.android.play:core-common 2.0.4 — and NO permission from any of them. They do
+  // merge two harmless application entries: basement's `com.google.android.gms.version`
+  // meta-data and core-common's PlayCoreDialogWrapperActivity, which is
+  // android:exported="false" and is never started by this module (nothing here calls showDialog).
+  // N0 item 11 confirms it on a real merged manifest.
+  //
+  // Its minSdk is 23, under this module's 24, so the app's Android minimum does not move.
+  //
+  // Pinned exactly, and read the runtime policy in app/app.config.ts before changing the number:
+  // ADDING this dependency needs no runtimeVersion bump, because the module is reached through
+  // src/device/natives.ts and an older binary simply finds nothing — but CHANGING the version
+  // afterwards is "an already-installed native package changed", which does. check-runtime.mjs
+  // sees this file in the module source hash, so it will ask for a lock refresh either way; it
+  // cannot tell the two apart, so that judgement is the reader's.
+  implementation "com.google.android.play:integrity:1.6.0"
+
+  // Activity Recognition (the transition API, for "in a car?") and GeofencingClient. Pinned, and in
+  // the build only when something uses it. It brings play-services-base, -basement and -tasks, of
+  // which play-services-base 17.3.0 is already in the tree through expo-store-review, so Gradle
+  // resolves that one up. (U) Check the version is still current at pin time and record it in
+  // app/native-inputs.lock's note; 21.3.0 is the one this was written against.
+  if (tulmiAndroidMotion || tulmiAndroidArrival) {
+    implementation "com.google.android.gms:play-services-location:21.3.0"
+  }
+
+  // The JVM test for the step ledger (src/test/java/.../TulmiMotionStepsTest.kt), which is the
+  // thing that holds the Kotlin and src/device/androidMotionCore.ts to the same arithmetic. Unit
+  // tests only — nothing here is in the app's own compile or in the APK. The same two coordinates
+  // modules/tulmi-bridge/android/build.gradle already uses for its planner tests, so no new
+  // artefact enters the build.
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20250517'
 }

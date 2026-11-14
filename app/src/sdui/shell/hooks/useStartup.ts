@@ -115,7 +115,8 @@ export function useStartup({
   }, []);
 
   // Meta again once a bootstrap is in hand (src/telemetry/meta.ts): the mount's try above comes before the server's knobs,
-  // so on an iPhone it never finds ads.meta.ios.enabled and never asks Apple's tracking prompt. This one does, on the first
-  // bootstrap that turns it on. A no-op once Meta has started, or while it stays off.
+  // so a build whose ads.meta.enabled arrives with the bootstrap never started the SDK at all. This one does, on the first
+  // bootstrap that turns it on. A no-op once Meta has started, while it stays off, and always on the iPhone, whose binary
+  // carries no Meta SDK and no tracking prompt (app/plugins/withNoMetaIos.js).
   useEffect(() => { if (boot) initMeta(); }, [boot]);
 }

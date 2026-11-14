@@ -46,6 +46,50 @@ const META_CLIENT_TOKEN = (process.env.META_CLIENT_TOKEN ?? "").trim();
 // but unlinked (react-native.config.js and modules/tulmi-perms' plugin), and the JS check
 // declares no Health1 on that build. iPhone health is not affected either way.
 const TULMI_ANDROID_HEALTH = (process.env.TULMI_ANDROID_HEALTH ?? "").trim().toLowerCase() === "on";
+// SLEEP HAS ITS OWN SWITCH, and it only means anything with the one above on. Read the same
+// way, recorded per build profile in native-inputs.lock, and "on" in exactly one place: an
+// Android build that carries Health Connect AND has Play's approval for sleep. On, `permissions`
+// gains READ_SLEEP; off, blockedPermissions takes it back out.
+//
+// Why a second switch and not one: steps and exercise still wait on Play's Health Connect form,
+// so every profile but n0 has TULMI_ANDROID_HEALTH off. Sleep is a separate line on that form
+// with its own answer. Folded into one switch, the day steps are approved the build would either
+// carry an unapproved READ_SLEEP (Play refuses the release) or hold steps back until sleep is
+// approved too. Two switches let steps ship the day they are cleared, and sleep the day it is.
+// tools/ci/check-runtime.mjs refuses a profile with sleep on and health off.
+const TULMI_ANDROID_HEALTH_SLEEP =
+  TULMI_ANDROID_HEALTH && (process.env.TULMI_ANDROID_HEALTH_SLEEP ?? "").trim().toLowerCase() === "on";
+// THE THREE ANDROID SWITCHES OF 8.9.1 (perms2/SPEC.md 2, 5, 7), each read exactly like
+// TULMI_ANDROID_HEALTH above, each recorded per build profile in native-inputs.lock, and each
+// INDEPENDENT of the other two — because the thing that holds an Android permission up is Play, and
+// Play answers each declaration on its own clock. One switch for all three would mean the slowest
+// answer decides when any of them ships.
+//
+// CALENDAR: "Plan around my calendar" reads BUSY TIMES ONLY from the phone's calendars —
+// {start, end, all-day} for 14 days, never an event's name, place, notes, people or calendar name
+// (modules/tulmi-perms/android/.../TulmiCalendarRead.kt, whose projection has no such column). On,
+// `permissions` gains READ_CALENDAR; off, blockedPermissions takes it back out. There is NO
+// WRITE_CALENDAR either way: "Add to my calendar" is the calendar app's own ACTION_INSERT screen,
+// which needs no permission at all. Play asks for no declaration for a calendar READ, so this is
+// the one of the three that can go on as soon as its screens are live.
+const TULMI_ANDROID_CALENDAR = (process.env.TULMI_ANDROID_CALENDAR ?? "").trim().toLowerCase() === "on";
+// MOTION: daily steps for a fitness bot when Health Connect is not the source, and the "in a car?"
+// check just before a Plan Ease call. ONE grant covers both: from Android 10 the system refuses a
+// step-counter listener without ACTIVITY_RECOGNITION, and the driving check needs it too. On,
+// `permissions` gains it, modules/tulmi-perms' android/build.gradle compiles src/motion/java and
+// links play-services-location; off, blockedPermissions takes the permission out, src/motionOff/java
+// is compiled instead and no Play services location class is in the binary. Steps have no Play
+// declaration; the driving check has none either (it is not background location).
+const TULMI_ANDROID_MOTION = (process.env.TULMI_ANDROID_MOTION ?? "").trim().toLowerCase() === "on";
+// ARRIVAL: "Remind me when I get there". THIS IS THE ONE THAT WAITS FOR PLAY. Android has no
+// equivalent of the iPhone's location notification trigger, where the system both watches the place
+// and shows the reminder: a geofence is delivered to the app, so it needs ACCESS_FINE_LOCATION and
+// ACCESS_BACKGROUND_LOCATION, which means Play's background-location declaration, a demo video and a
+// human review (backend docs/owner-8.9.1.md). It ships OFF in every profile until Play has
+// answered, and it is its own switch so it can never hold the other two — or the release — up.
+// Off: both permissions stay blocked, no geofencing is in the binary, no receiver is in the
+// manifest, and abilities().arrival is false, so the server draws no switch on an Android phone.
+const TULMI_ANDROID_ARRIVAL = (process.env.TULMI_ANDROID_ARRIVAL ?? "").trim().toLowerCase() === "on";
 const metaPlugin: [string, Record<string, unknown>][] =
   /^\d+$/.test(META_APP_ID) && META_CLIENT_TOKEN
     ? [[
@@ -63,12 +107,16 @@ const metaPlugin: [string, Record<string, unknown>][] =
           // Android's advertising id, which is what credits an install to an
           // ad there. iPhone's needs the tracking prompt, and gets none.
           advertiserIDCollectionEnabled: true,
-          // iPhone: off until the server turns it on (ads.meta.ios.enabled); then Apple's tracking prompt comes first
-          // (expo-tracking-transparency below, src/telemetry/meta.ts), and Meta measures in aggregate for those who
-          // decline (SKAdNetwork ids are added by the plugin). The prompt's words are expo-tracking-transparency's.
+          // The plugin's own iPhone tracking option, left false. It is belt and braces: plugins/withNoMetaIos (first
+          // in the plugin list) takes every Meta and tracking key back out of Info.plist whatever is set here, and
+          // the iPhone build links neither Meta nor expo-tracking-transparency (package.json's autolinking exclude).
           iosUserTrackingPermission: false,
         },
       ], [
+        // ANDROID'S AD_ID PERMISSION, and nothing else. This plugin's other half writes
+        // NSUserTrackingUsageDescription, which plugins/withNoMetaIos deletes again: the iPhone build has no App
+        // Tracking Transparency code in it, so a string for a prompt it cannot show would be a declaration with no
+        // screen behind it. The words are kept here for the day Meta ships on iPhone in its own reviewed build.
         "expo-tracking-transparency",
         { userTrackingPermission: "X0 Bot uses this to see which ads brought you here. Turn it off any time in Settings." },
       ]]
@@ -84,25 +132,52 @@ const MIC_USAGE =
   "X0 Bot uses the microphone to turn your speech into text, and to talk with your bots by voice, including when Plan Ease calls you. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.";
 const CAMERA_USAGE =
   "X0 Bot uses the camera when you take a photo or video, or scan a code, to give to a bot or send in a chat.";
-// LOCATION AND HEALTH, each written for one data type and one purpose, and each with a working
-// screen in this same binary (no dark declarations).
+// EVERY PURPOSE STRING, each written for one data type and one purpose, and each with a working
+// screen in this same binary (no dark declarations). Keep them in step with the card words the
+// server sends (screens/permitWords.ts), the store documents and the privacy policy: a purpose
+// string that drifts from the screen is a 5.1.1 rejection, and tulmi/tests/perm-words.test.ts
+// pairs each one with its card.
 //
-// Location is one foreground fix, taken only when the person taps "Use my location" on Plan
-// Ease's "Where does your day start?" card. The phone's own map service names the point; X0 Bot
-// keeps the area's name and never the point, and never looks again on its own. Arrival reminders
-// would need Always, which is not in this build, so no NSLocationAlways* key is here.
+// Location is one foreground fix when the person taps "Use my location" on Plan Ease's "Where
+// does your day start?" card, and, from 8.9.1, arrival reminders: the iPhone's OWN location
+// notification trigger watches a place and shows the reminder, which needs only While Using
+// (the system monitors the region, the app is not woken and is never told of an arrival). So
+// still no NSLocationAlways* key and still no `location` background mode.
 //
-// Health is read-only, steps and workouts, for a fitness bot the person made and switched on
-// themselves. Keep these two in step with the card words the server sends
-// (screens/permitWords.ts) and the store documents: a purpose string that drifts from the screen
-// is a 5.1.1 rejection. HEALTH_USAGE is handed to the HealthKit plugin below as well, so the
-// plugin cannot replace it with its own default.
+// Health is read-only: steps and workouts, and nightly sleep minutes when the person turns that
+// on, for a fitness bot they made and switched on themselves. HEALTH_USAGE is handed to the
+// HealthKit plugin below as well, so the plugin cannot replace it with its own default, and
+// tulmi-perms' abilities() says `healthSleep` only while this string names sleep — so cutting
+// sleep from the string takes its capability with it, without a JavaScript change.
+//
+// Calendar and Reminders read nothing a card has not asked for: busy times only (start, end,
+// all-day), and one list X0 Bot makes and keeps for itself. Motion counts steps for a fitness
+// bot when Apple Health is not the source, and answers "in a car?" yes or no just before a Plan
+// Ease call. iOS offers no read-only calendar grant and no write-only reminders grant, which is
+// why both ask for full access; the cards, the store documents and the review notes say so.
 const LOCATION_USAGE =
-  "X0 Bot uses your location when you tap Use my location, to fill in a place for you, like the area your day starts " +
-  "from, so it can work out your travel times. It keeps the area's name, not your exact location.";
+  "X0 Bot uses your location when you tap Use my location, to fill in the area your day starts from, and for arrival " +
+  "reminders you turn on, so your iPhone itself can remind you when you get to a place. It keeps the area's name, not your " +
+  "exact location, and is never told where you go.";
 const HEALTH_USAGE =
-  "X0 Bot reads your steps and workouts when you connect Apple Health to a fitness bot you made, so the bot can count " +
-  "your active days and keep your streak. It reads nothing else and never uses it for ads.";
+  "X0 Bot reads your steps and workouts, and your sleep if you turn it on, when you connect Apple Health to a fitness bot " +
+  "you made, so the bot can count your active days, keep your streak and show how you slept. It reads nothing else and " +
+  "never uses it for ads.";
+// Apple refuses an upload without this key (ITMS-90683) because the Health library also contains Health's save calls,
+// even though X0 Bot never asks to write and never shows this text. It says what is true: nothing is written.
+const HEALTH_UPDATE_USAGE =
+  "X0 Bot never writes to Apple Health. It only reads your steps, workouts and sleep for a fitness bot you made and switched on.";
+const CALENDAR_USAGE =
+  "X0 Bot reads when you're busy in your calendar when you turn on Plan around my calendar, so Plan Ease can plan and call " +
+  "around your events. It keeps only the busy times, never event names, and never uses your calendar for ads.";
+const REMINDERS_USAGE =
+  "X0 Bot keeps one Reminders list, called X0 Bot, in step with your Plan Ease to-dos when you turn on Sync with Reminders, " +
+  "so a to-do you add in either place shows up in both. Its items are treated like your other to-dos, including by AI if you " +
+  "allow it. It doesn't open your other lists and never uses Reminders for ads.";
+const MOTION_USAGE =
+  "X0 Bot uses Motion & Fitness to count your steps for a fitness bot you made, when you choose it instead of Apple Health, " +
+  "and, if you turn it on, to check whether you're driving just before Plan Ease calls, so the call can wait. It never uses " +
+  "it for ads.";
 
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
@@ -122,8 +197,12 @@ const config: ExpoConfig = {
   // never be uploaded; 8.7 is on the store now too. The iOS release job checks
   // this against the live store version before it builds (tools/ci/ios-version.mjs).
   // The App Store has 8.5 live (lookup, 19 Oct 2026), so Apple refuses any build
-  // at 8.5 or below, 8.4 included. 8.8 is what build 79 carried, so build 80 stays on it.
-  version: "8.8",
+  // at 8.5 or below, 8.4 included. 8.8 was approved, and Apple closed that train
+  // (14 Nov 2026, errors 90186 / 90062), so 8.9 was that build. 8.9.1 is this one: calendar,
+  // Reminders, Focus, motion, sleep, arrival reminders and attestation (perms2/SPEC.md). The
+  // lookup only sees the LIVE version, never an approved one not yet released: check App
+  // Store Connect too.
+  version: "8.9.1",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
@@ -225,25 +304,45 @@ const config: ExpoConfig = {
       // the app asks for it, or will (image and video bots: a photo as input,
       // saving what they make), or when a linked module calls its API.
       //
-      // STILL OUT (the Oct 2026 clear-out), each because nothing in the app or
-      // its keyboard, share and widget extensions asks for it, and no linked
-      // code calls its permission API (checked in node_modules' iOS sources and
-      // in targets/ and modules/): calendars and reminders (expo-calendar is
-      // gone: the app keeps its own calendar on the server, actions.ts
-      // calendar.addEvent), motion (only CMMotionManager, which needs no key;
-      // no activity, pedometer or altimeter), Apple Music (only Now Playing and
-      // remote commands, no media library), Bluetooth (no CoreBluetooth), local
-      // network (a release build talks only to https on x0bot.com;
-      // expo-dev-launcher adds its own key to development builds and strips it
-      // from release ones).
+      // STILL OUT, each because nothing in the app or its keyboard, share and
+      // widget extensions asks for it, and no linked code calls its permission
+      // API (checked in node_modules' iOS sources and in targets/ and
+      // modules/): Apple Music (only Now Playing and remote commands, no media
+      // library), Bluetooth (no CoreBluetooth), local network (a release build
+      // talks only to https on x0bot.com; expo-dev-launcher adds its own key to
+      // development builds and strips it from release ones), and CONTACTS (see
+      // below). Also still out, and named so nobody adds them back by habit:
+      // NSLocationAlways* (no background location in this binary),
+      // NSFocusStatusUsageDescription (the Focus Filter asks nothing, 4.2),
+      // NSCalendarsWriteOnlyAccessUsageDescription (nothing writes through a
+      // grant; the editor runs out of process) and
+      // NSLocationTemporaryUsageDescriptionDictionary.
       //
-      // BACK, each with its screen in this same binary: LOCATION and HEALTH.
-      // Location is one foreground fix behind "Use my location" on Plan Ease's
-      // day-starts card (modules/tulmi-perms, CLLocationManager.requestLocation
-      // plus CLGeocoder) — When In Use only, so no NSLocationAlways* key, no
-      // region monitoring and no motion. Health is read-only steps and workouts
-      // behind a switch on a fitness bot the person made
-      // (@kingstinct/react-native-healthkit).
+      // BACK IN 8.9.1, each with its screen in this same binary and a card before
+      // its prompt (perms2/SPEC.md 2-7): CALENDARS, REMINDERS and MOTION, beside
+      // LOCATION and HEALTH.
+      //  - Location: one foreground fix behind "Use my location" on Plan Ease's
+      //    day-starts card (modules/tulmi-perms, CLLocationManager.requestLocation
+      //    plus CLGeocoder), and arrival reminders, which are
+      //    UNLocationNotificationTrigger requests the SYSTEM watches — While Using
+      //    is all that needs, so no NSLocationAlways* key and no `location`
+      //    background mode.
+      //  - Health: read-only steps, workouts and nightly sleep minutes behind a
+      //    switch on a fitness bot the person made
+      //    (@kingstinct/react-native-healthkit).
+      //  - Calendars: busy times only (start, end, all-day) behind "Plan around my
+      //    calendar" (modules/tulmi-perms, EventKit). iOS 17 has no read-only
+      //    calendar grant, so the full-access key is the only read key there is.
+      //    "Add to my calendar" needs NO grant at all: EKEventEditViewController
+      //    runs out of process on iOS 17+, which is why expo-calendar is still not
+      //    in this build (its plugin writes Android READ/WRITE_CALENDAR and the
+      //    reminders keys whatever it is passed).
+      //  - Reminders: one list X0 Bot makes, called X0 Bot, behind "Sync with
+      //    Reminders". iOS has no write-only reminders grant either.
+      //  - Motion: CMPedometer and CMMotionActivityManager, behind "Count my steps
+      //    with Motion & Fitness" and "Wait while I'm driving". Calling either
+      //    without this key crashes, which is why tulmi-perms' abilities() checks
+      //    the key is here before it says `motion`.
       //
       // CONTACTS STAYS OUT, and the feature still ships: "Add from contacts"
       // uses the system picker (CNContactPickerViewController in
@@ -293,19 +392,49 @@ const config: ExpoConfig = {
       // day-starts card). While Using only: there is no Always key here and no
       // background location in the binary, so iOS never offers "Always".
       NSLocationWhenInUseUsageDescription: LOCATION_USAGE,
-      // The prompt opens on APPROXIMATE, matching Android asking for COARSE
-      // only and the label, which claims no Precise Location. A person can
-      // still switch it to Precise, and either way only the area's name is
-      // kept, never a point. If Bengaluru neighbourhoods come out wrong too
-      // often, this key goes and nothing else changes.
-      NSLocationDefaultAccuracyReduced: true,
-      // READ-ONLY steps and workouts for a fitness bot the person made and
-      // switched on. Nothing is ever written to Apple Health, so there is no
-      // NSHealthUpdateUsageDescription (the library's plugin is told to skip
-      // it), no clinical-records key, and no healthkit entry in
+      // NSLocationDefaultAccuracyReduced IS GONE IN 8.9.1, and that is the whole
+      // reason arrival reminders work. The key made the prompt open on
+      // Approximate — and it does not only change the prompt: with it set,
+      // EVERY Core Location service runs at reduced accuracy, region monitoring
+      // included, so an arrival reminder would be watched against a fix a
+      // kilometre wide. So the prompt now opens on Precise, the person can still
+      // pick Approximate, and arrivalArm refuses to arm on Approximate and says
+      // so (perms2/SPEC.md 7.1). Nothing else changes: the day-starts card still
+      // keeps only the area's NAME, never a point, so the privacy label stays
+      // Coarse Location with no Precise Location collected.
+      // tools/ci/check-config-shape.mjs fails if this key comes back.
+      // READ-ONLY steps, workouts and nightly sleep minutes for a fitness bot
+      // the person made and switched on. Nothing is ever written to Apple Health
+      // and write access is never asked for; the update text exists only because
+      // Apple's upload check sees the library's save calls (ITMS-90683). No
+      // clinical-records key, and no healthkit entry in
       // UIRequiredDeviceCapabilities — a phone without HealthKit simply never
-      // shows the switch.
+      // shows the switch. Sleep is asked for in its OWN request, so a refusal of
+      // sleep leaves steps working.
       NSHealthShareUsageDescription: HEALTH_USAGE,
+      NSHealthUpdateUsageDescription: HEALTH_UPDATE_USAGE,
+      // CALENDARS: busy times only, behind "Plan around my calendar". iOS 17
+      // offers no read-only calendar grant, so full access is the only read
+      // there is — the card, the store documents and the review notes all say
+      // the app reads nothing but when events start and end. Both keys carry
+      // the SAME text: the new one is what iOS 17+ shows, and the old one is
+      // here because EventKit is linked and Apple's upload check may ask for it
+      // (N0 item 1 settles whether it is really needed).
+      NSCalendarsFullAccessUsageDescription: CALENDAR_USAGE,
+      NSCalendarsUsageDescription: CALENDAR_USAGE,
+      // REMINDERS: one list X0 Bot makes and keeps, behind "Sync with
+      // Reminders". iOS has no write-only reminders grant either, and the module
+      // fetches a predicate over that one list and no other. Same two-key
+      // reason as calendars.
+      NSRemindersFullAccessUsageDescription: REMINDERS_USAGE,
+      NSRemindersUsageDescription: REMINDERS_USAGE,
+      // MOTION & FITNESS: CMPedometer for a fitness bot's daily steps when Apple
+      // Health is not the source, and one CMMotionActivityManager query just
+      // before a Plan Ease call answering "in a car?" yes or no. Nothing else,
+      // no places and nothing finer than a day. Touching either API without
+      // this key crashes the app, so tulmi-perms' abilities() reads the key out
+      // of the running binary before it says `motion` at all.
+      NSMotionUsageDescription: MOTION_USAGE,
       // The biometricPrompt action (expo-local-authentication): the Code
       // bot's and connected apps' approvals ask for Face ID before a bot acts.
       // SecureStore links LocalAuthentication too.
@@ -330,6 +459,16 @@ const config: ExpoConfig = {
       // after a force-quit, seldom in Low Power Mode. No "fetch" or
       // BGAppRefresh mode is added; iOS rarely runs those for an app people do
       // not open daily.
+      //
+      // NO "location", in 8.9.1 either. Arrival reminders are
+      // UNLocationNotificationTrigger requests: the SYSTEM watches the place and
+      // shows the notification, and this app is never woken for it. Adding the
+      // mode would be a 2.5.4 declaration with no code behind it, so
+      // tools/ci/check-config-shape.mjs fails if it ever appears here.
+      // "remote-notification" also carries the pre-ring check (perms2/SPEC.md
+      // 5.3): a silent push about 30 seconds before a Plan Ease call, answered
+      // "driving" or "not driving" and "a Focus is on" or not. Best effort, and
+      // the server rings as it does today when no answer comes.
       UIBackgroundModes: ["audio", "remote-notification"],
       // The Flow session is a Live Activity while the background microphone
       // is armed: visible on the Lock Screen and in the Dynamic Island, and
@@ -459,6 +598,23 @@ const config: ExpoConfig = {
       // the App ID from this key, as it did for time-sensitive; if its sync
       // fails, the App ID gets it by hand in the day-1 signing session.
       "com.apple.developer.healthkit": true,
+      // APP ATTEST, for abuse and fraud prevention only (perms2/SPEC.md 8.5).
+      // DCAppAttestService asks Apple whether a request comes from the real X0
+      // Bot on a real device; the server keeps only the ANSWER, never a device
+      // id made from the phone. There is no prompt, no usage string and no
+      // screen, because nothing about the person is read.
+      //
+      // "production" is right for every build that matters: TestFlight and App
+      // Store builds always use the production environment whatever this key
+      // says, and a development build without the key falls back to the
+      // sandbox. check-config-shape.mjs pins the value, so a stray "development"
+      // cannot ship. EAS turns the capability on for the App ID from this key,
+      // as it did for time-sensitive and HealthKit; if its sync fails, the App
+      // ID gets it by hand in the day-1 signing session.
+      //
+      // DeviceCheck needs no entitlement and Play Integrity no manifest entry,
+      // so this one key is the whole native declaration for attestation.
+      "com.apple.developer.devicecheck.appattest-environment": "production",
     },
   },
   android: {
@@ -503,6 +659,42 @@ const config: ExpoConfig = {
       ...(TULMI_ANDROID_HEALTH
         ? ["android.permission.health.READ_STEPS", "android.permission.health.READ_EXERCISE"]
         : []),
+      // Sleep, behind its OWN switch and only with the one above on too (see
+      // TULMI_ANDROID_HEALTH_SLEEP at the top). Nightly minutes asleep for a
+      // fitness bot the person switched sleep on for; read only, kept 31 days,
+      // deleted when they switch it off. It is its own line on Play's Health
+      // Connect form with its own reason, and the build carries it only once Play
+      // has answered that line. Never READ_HEALTH_DATA_IN_BACKGROUND and never
+      // READ_HEALTH_DATA_HISTORY.
+      ...(TULMI_ANDROID_HEALTH_SLEEP ? ["android.permission.health.READ_SLEEP"] : []),
+      // CALENDAR, READ ONLY, behind TULMI_ANDROID_CALENDAR (see the top). Busy times for 14 days
+      // and nothing else. WRITE_CALENDAR is never here: adding an event is the calendar app's own
+      // ACTION_INSERT screen, which needs no permission.
+      ...(TULMI_ANDROID_CALENDAR ? ["android.permission.READ_CALENDAR"] : []),
+      // MOTION, behind TULMI_ANDROID_MOTION. One person-facing grant for both halves: the step
+      // counter (Android 10 refuses the listener without it) and the "in a car?" check.
+      ...(TULMI_ANDROID_MOTION ? ["android.permission.ACTIVITY_RECOGNITION"] : []),
+      // AND ITS API 24-28 TWIN. android.permission.ACTIVITY_RECOGNITION only exists from API 29;
+      // this app's minSdk is 24, and on 24-28 Play services checks its OWN permission of the same
+      // name instead (Google's activity-recognition sample declares both for exactly this reason).
+      // It is install-time, so nobody is prompted and there is no Play form; without it
+      // requestActivityTransitionUpdates fails silently on Android 7, 8 and 9 and the driving check
+      // answers "unknown" for ever there. play-services-location declares no permissions of its own,
+      // so nothing else brings it in.
+      ...(TULMI_ANDROID_MOTION ? ["com.google.android.gms.permission.ACTIVITY_RECOGNITION"] : []),
+      // ARRIVAL, behind TULMI_ANDROID_ARRIVAL, which is off in every shipping profile until Play
+      // has approved the background-location declaration. A geofence needs precise location, and
+      // one that fires with the app closed needs "Allow all the time". (RECEIVE_BOOT_COMPLETED is
+      // deliberately NOT here: expo-notifications already declares it in every build, with the
+      // BOOT_COMPLETED receiver that reschedules this app's own local notifications, so this app
+      // must neither add it nor block it — blocking would write tools:node="remove" and take that
+      // away from every release.)
+      ...(TULMI_ANDROID_ARRIVAL
+        ? [
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+          ]
+        : []),
     ],
     // `permissions` ADDS. It cannot take away what a library merges in.
     //
@@ -542,22 +734,58 @@ const config: ExpoConfig = {
       "android.permission.READ_MEDIA_AUDIO",
       "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
       "android.permission.SYSTEM_ALERT_WINDOW",
-      // LOCATION, CONTACTS AND ACTIVITY, blocked so no library can merge them in
-      // behind the app's back. The app asks for COARSE and nothing else: FINE
-      // would offer Precise the app never uses and never stores; BACKGROUND
-      // needs Play's declaration with a video and a human review, and nothing
-      // here reads location while the app is closed; FOREGROUND_SERVICE_LOCATION
-      // has no service to match. READ/WRITE_CONTACTS: the picker runs outside
-      // the app (ACTION_PICK), so neither is needed, and declaring them is what
-      // Play's 2027 picker rule and Apple's 5.1.1(iii) both refuse.
-      // ACTIVITY_RECOGNITION: Health Connect's steps come from Health Connect,
-      // not from the phone's own step sensor, so nothing may ask for it.
-      "android.permission.ACCESS_FINE_LOCATION",
-      "android.permission.ACCESS_BACKGROUND_LOCATION",
+      // LOCATION, CONTACTS, ACTIVITY AND THE CALENDAR, blocked so no library can
+      // merge them in behind the app's back. ACCESS_NOTIFICATION_POLICY is only
+      // for CHANGING Do Not Disturb; reading it with getCurrentInterruptionFilter
+      // needs nothing.
+      //
+      // From 8.9.1 three of these move with their own build switch (see the
+      // switches at the top): ACTIVITY_RECOGNITION with TULMI_ANDROID_MOTION,
+      // FINE and BACKGROUND location with TULMI_ANDROID_ARRIVAL, READ_CALENDAR
+      // with TULMI_ANDROID_CALENDAR. Every shipping profile has all three off, so
+      // the three permissions are removed from the release candidate's merged
+      // manifest exactly as they were before. WRITE_CALENDAR and
+      // FOREGROUND_SERVICE_LOCATION are blocked whatever the switches say.
+      // RECEIVE_BOOT_COMPLETED is neither declared nor blocked by this app:
+      // expo-notifications declares it, and the receivers behind the two switches
+      // use it.
+      //
+      // FOREGROUND_SERVICE_LOCATION and the two contacts permissions stay blocked
+      // in EVERY build, whatever the 8.9.1 switches say: there is no location
+      // foreground service in the binary, and the contact picker runs outside the
+      // app (ACTION_PICK), so declaring either contacts permission is what Play's
+      // 2027 picker rule and Apple's 5.1.1(iii) both refuse.
       "android.permission.FOREGROUND_SERVICE_LOCATION",
       "android.permission.READ_CONTACTS",
       "android.permission.WRITE_CONTACTS",
-      "android.permission.ACTIVITY_RECOGNITION",
+      // THE THREE THAT NOW MOVE WITH THEIR SWITCH. `permissions` above only ADDS,
+      // so only tools:node="remove" takes one out of the MERGED manifest — a
+      // library could merge it in, and a prebuild run after an ON prebuild without
+      // --clean would keep yesterday's entry. Each is blocked whenever its own
+      // switch is off, and must not appear here when it is on.
+      //
+      // ACTIVITY_RECOGNITION: the step counter and the "in a car?" check
+      // (TULMI_ANDROID_MOTION), with the API 24-28 Play services twin beside it so
+      // neither can be left behind by a prebuild over an older native folder.
+      ...(TULMI_ANDROID_MOTION
+        ? []
+        : [
+            "android.permission.ACTIVITY_RECOGNITION",
+            "com.google.android.gms.permission.ACTIVITY_RECOGNITION",
+          ]),
+      // FINE and BACKGROUND location: arrival reminders only (TULMI_ANDROID_ARRIVAL),
+      // which is off in every shipping profile until Play has approved the
+      // background-location declaration. "Use my location" still asks for COARSE
+      // and nothing more, on every build.
+      ...(TULMI_ANDROID_ARRIVAL
+        ? []
+        : ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_BACKGROUND_LOCATION"]),
+      // READ_CALENDAR: "Plan around my calendar" (TULMI_ANDROID_CALENDAR).
+      // WRITE_CALENDAR is blocked in every build, switch or no switch: nothing in
+      // this app writes to a calendar — "Add to my calendar" is the calendar app's
+      // own ACTION_INSERT screen, which has no access at all.
+      ...(TULMI_ANDROID_CALENDAR ? [] : ["android.permission.READ_CALENDAR"]),
+      "android.permission.WRITE_CALENDAR",
       // The two health reads, blocked whenever the build switch is OFF. The
       // `permissions` list above only ADDS, so with the switch off nothing
       // removes them: a library could merge them in, and a prebuild run after
@@ -568,6 +796,13 @@ const config: ExpoConfig = {
       ...(TULMI_ANDROID_HEALTH
         ? []
         : ["android.permission.health.READ_STEPS", "android.permission.health.READ_EXERCISE"]),
+      // READ_SLEEP, blocked whenever ITS switch is off — which includes every
+      // build with TULMI_ANDROID_HEALTH off, because sleep only means anything
+      // with health on. Same reason as the two above: `permissions` only adds,
+      // so only tools:node="remove" takes it out of the merged manifest, and a
+      // release that carries a permission Play has not approved on the Health
+      // Connect form is refused.
+      ...(TULMI_ANDROID_HEALTH_SLEEP ? [] : ["android.permission.health.READ_SLEEP"]),
     ],
     // Android masks the icon into whatever shape the launcher wants (circle,
     // squircle, teardrop) and shows only the middle 72/108 of the canvas.
@@ -605,6 +840,17 @@ const config: ExpoConfig = {
   // Expo to require() its main entry as if it were a plugin, which throws
   // on "Unexpected token 'export'".
   plugins: [
+    // META OFF THE IPHONE, whatever META_APP_ID and META_CLIENT_TOKEN are set to for the build. Both Meta plugins
+    // stay at the end of this list, so the Android build is unchanged; this takes the iOS half back out — the
+    // Facebook keys, the tracking prompt's string, the Meta SKAdNetwork ids and the fb scheme — and package.json's
+    // expo.autolinking.ios.exclude keeps the two pods and Meta's launch hook out of the iPhone project, so there is
+    // no Meta code in that binary either. App Review 2.5.19: nothing dormant, and nothing a server knob can turn on
+    // after approval.
+    //
+    // FIRST IN THIS LIST ON PURPOSE, which is what makes it run LAST: Expo composes an `Info.plist` mod so that the
+    // plugin registered later runs earlier (@expo/config-plugins' withMod calls `nextMod` after its own action). At
+    // the end of the list the Meta plugins wrote their keys back in again, which this check caught.
+    "./plugins/withNoMetaIos",
     // No background playback: nothing plays audio behind the lock screen.
     // Left on (the plugin's default), it put a media-playback foreground
     // service and FOREGROUND_SERVICE_MEDIA_PLAYBACK into the Android build,
@@ -618,18 +864,33 @@ const config: ExpoConfig = {
     "expo-document-picker",
     "expo-local-authentication",
     "expo-notifications",
-    // Still no expo-contacts, expo-calendar or expo-location, and all three
-    // features they would carry are in this build anyway:
+    // Still no expo-contacts, expo-calendar, expo-location or expo-sensors, and
+    // every feature they would carry is in this build anyway — all of it in
+    // modules/tulmi-perms, which is reached only through src/device/natives.ts:
     //  - contacts is the system picker (modules/tulmi-perms), so no permission
     //    at all; expo-contacts' plugin adds READ_CONTACTS *and* WRITE_CONTACTS,
     //    and its picker needs READ_CONTACTS on Android.
-    //  - location is one fix in that same module, about 150 lines;
-    //    expo-location's plugin writes NSLocationAlways* and
-    //    NSMotionUsageDescription unless each is passed false, merges
-    //    ACCESS_FINE_LOCATION and a LocationTaskService with
+    //  - location is one fix in that same module, about 150 lines, plus arrival
+    //    reminders — UserNotifications on iPhone, and on Android a GeofencingClient
+    //    behind TULMI_ANDROID_ARRIVAL; expo-location's plugin writes
+    //    NSLocationAlways* and NSMotionUsageDescription unless each is passed
+    //    false, merges ACCESS_FINE_LOCATION and a LocationTaskService with
     //    foregroundServiceType="location", and links the Always/background
     //    APIs, which is the ITMS-90683 refusal this file warns about above.
-    //  - the app keeps its own calendar on the server.
+    //  - calendar and reminders are EventKit in that module: busy times (and on
+    //    Android CalendarContract.Instances behind TULMI_ANDROID_CALENDAR, read
+    //    only), and an out-of-process editor that needs no grant.
+    //    expo-calendar's plugin writes the reminders keys and Android
+    //    READ_CALENDAR *and* WRITE_CALENDAR whatever it is passed — and this app
+    //    must never carry WRITE_CALENDAR — and it keeps its own calendar on the
+    //    server besides.
+    //  - motion is CMPedometer and CMMotionActivityManager in that module, and on
+    //    Android TYPE_STEP_COUNTER plus Play services' activity transitions behind
+    //    TULMI_ANDROID_MOTION. expo-sensors has no activity types at all, and its
+    //    Android pedometer would want ACTIVITY_RECOGNITION on its own terms.
+    //  - attestation is DeviceCheck, App Attest and Play Integrity in that same
+    //    module (perms2/SPEC.md 8.5). No npm package: @expo/app-integrity has no
+    //    DeviceCheck, no config plugin, and pins an older Play Integrity.
     "expo-video",
     // Splash / launch screen: the app icon's Blip, small, in ink, hanging upside
     // down from a piece of bar by his robot hands, shades on, his feelers
@@ -698,8 +959,9 @@ const config: ExpoConfig = {
     "./modules/tulmi-share/plugin/withTulmiShare",
     // APPLE HEALTH, read only. The two option names are the plugin's own
     // (app.plugin.ts): the share string is handed in so the plugin cannot
-    // replace it with "X0 Bot wants to read your health data", `false` skips
-    // the update string entirely (nothing is ever written to Health), and
+    // replace it with "X0 Bot wants to read your health data", the update
+    // string says nothing is written (Apple requires the key; write access is
+    // never requested), and
     // background:false leaves out the background-delivery entitlement, so the
     // core pod's launch hook has no type to observe. The package has no Android
     // code; Health Connect is the Android half, behind the build switch.
@@ -707,7 +969,7 @@ const config: ExpoConfig = {
       "@kingstinct/react-native-healthkit",
       {
         NSHealthShareUsageDescription: HEALTH_USAGE,
-        NSHealthUpdateUsageDescription: false,
+        NSHealthUpdateUsageDescription: HEALTH_UPDATE_USAGE,
         background: false,
       },
     ],
@@ -722,9 +984,22 @@ const config: ExpoConfig = {
     // The rationale screen when the switch is on, and taking Health Connect's
     // Expo half out of the build when it is off (react-native.config.js takes
     // out the React Native half; the two have to go together).
-    ["./modules/tulmi-perms/plugin/withTulmiPerms", { androidHealth: TULMI_ANDROID_HEALTH }],
+    // The rationale screen when the health switch is on, Health Connect's Expo half out when it is
+    // off, and the two 8.9.1 receivers (motion transitions, geofence arrival + boot) only in a build
+    // whose own switch is on. Each branch undoes the other, for a developer machine running prebuild
+    // over native folders that are already there.
+    [
+      "./modules/tulmi-perms/plugin/withTulmiPerms",
+      {
+        androidHealth: TULMI_ANDROID_HEALTH,
+        androidMotion: TULMI_ANDROID_MOTION,
+        androidArrival: TULMI_ANDROID_ARRIVAL,
+      },
+    ],
     "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
+    // ANDROID'S META SDK. Everything the iPhone half of these two would write is taken back out by
+    // ./plugins/withNoMetaIos at the top of this list.
     ...metaPlugin,
   ],
   extra: {
@@ -737,7 +1012,10 @@ const config: ExpoConfig = {
     posthogHost: process.env.POSTHOG_HOST ?? "https://us.i.posthog.com",
     revenueCatIosKey: process.env.REVENUECAT_IOS_KEY ?? "",
     revenueCatAndroidKey: process.env.REVENUECAT_ANDROID_KEY ?? "",
-    // Only when the SDK is configured in this build (metaPlugin above).
+    // Only when the SDK is configured in this build (metaPlugin above). ANDROID READS IT AND THE IPHONE DOES NOT:
+    // src/telemetry/meta.ts leaves at once on iOS, where the binary has no Meta SDK to start. The id is not a secret
+    // and one config serves both platforms, so it is left as it is rather than branched on an environment variable
+    // that only EAS sets.
     metaAppId: metaPlugin.length ? META_APP_ID : "",
   },
 };

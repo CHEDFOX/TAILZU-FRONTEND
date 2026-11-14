@@ -233,11 +233,21 @@ export const CORE_ACTIONS = [
   // this bundle's promise; whether a SCREEN may use one is the `local` / `data` block in the handshake's
   // `blocks`, and a screen that does not name the block never gets them.
   "local.set", "local.remove", "subscribe",
+  // one of our own calls (pure/SPEC.md 2.13, the `call` block; TAILZU-BACKEND/docs/rooms.md). Running them is this bundle's promise;
+  // whether this BINARY can hold a call is the live client's, so the block is registered only where it loads (blocks/registry.ts).
+  "call.join", "call.set", "call.leave",
   // permissions
   "requestPermission", "checkPermission",
   // location, contacts, health: running them is this bundle's promise; whether the binary can is the module's (permCaps.ts:
   // Location1, ContactPick1, Health1), and without it the server sends none of them.
   "location.area", "contact.pick", "health.sync",
+  // the phone's own things, build 8.9.1 (docs: perms2): the calendar editor and busy times, one Reminders list, whether a Focus is
+  // on, and the arrival reminders the phone itself watches. Running them is this bundle's promise; whether this BINARY can is the
+  // module's (permCaps.ts: CalendarAdd1, CalendarRead1, Reminders1, Focus1, Arrival1), and without it the server sends none.
+  "calendar.editor", "calendar.sync", "reminders.sync", "focus.sync", "arrival.sync",
+  // "Wait while I'm driving", on or off (Motion1). ANDROID can only answer the driving check while it is registered, and off
+  // has to delete that registration, so the person's switch has to reach the phone both ways (perms2 5.2).
+  "motion.watch",
   // auth
   "biometricPrompt", "signOut",
   // IAP

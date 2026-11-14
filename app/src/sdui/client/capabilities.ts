@@ -3,6 +3,7 @@ import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react
 import * as Localization from "expo-localization";
 import { SDUI_SCHEMA_VERSION } from "../types";
 import { getDeviceSignals } from "../../device/signals";
+import { keyboardEnabledOffDevice } from "../../device/signalsCore";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "../registry";
 import { str } from "../knobs";
 import { APP_VERSION } from "./version";
@@ -134,9 +135,14 @@ export function buildCapabilities() {
       // direction. Showing a setup step that turns out to be unnecessary
       // costs a tap; skipping one that was necessary leaves the keyboard
       // never enabled, which is the whole product.
+      //
+      // keyboardEnabled IS NOT the `enabled` the screens read. On the iPhone that one is partly the system's own
+      // keyboard list, and the privacy manifest's reasons 54BD.1 and 3EC4.1 forbid sending that reading or anything
+      // derived from it off the phone. This is the keyboard's own App Group heartbeat instead (signalsCore.ts),
+      // under the same field name so the server's routing is unchanged. Android is unaffected.
       micGranted: getDeviceSignals().micGranted,
       keyboardReady: getDeviceSignals().keyboard?.fullAccess ?? false,
-      keyboardEnabled: getDeviceSignals().keyboard?.enabled ?? false,
+      keyboardEnabled: keyboardEnabledOffDevice(Platform.OS, getDeviceSignals().keyboard),
     },
   };
 }

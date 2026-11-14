@@ -2,8 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  KINDS, buildPayload, dayKey, durationMinutes, healthPathOk, healthSync, kindFromHC, kindFromHK, tzString, windowDays,
-  windowSize, type HealthDeps,
+  KINDS, MAX_SLEEP_MINUTES, buildPayload, dayKey, durationMinutes, healthPathOk, healthSync, kindFromHC, kindFromHK,
+  mergeSpans, sleepByDayFrom, sleepSpansFromHC, sleepSpansFromHK, tzString, windowDays, windowSize, type HealthDeps,
 } from "./healthCore.ts";
 
 const IST = 330;
@@ -197,4 +197,145 @@ test("the window starts at the local midnight of its first day", async () => {
   await healthSync({ path: P, ask: true, days: 2 }, deps);
   // 2026-11-12 00:00 +05:30 is 2026-11-11 18:30 UTC
   assert.equal(from?.toISOString(), "2026-11-11T18:30:00.000Z");
+});
+
+// ------------------------------------------------------------------- sleep and the motion source (docs: perms2 5, 6)
+
+test("sleep is asked for in its OWN request, and a refusal leaves steps working", async () => {
+  const asked: string[] = [];
+  const a = mk({
+    prepareSleep: async (ask) => { asked.push(`sleep:${ask}`); return "ready"; },
+    readSleep: async () => new Map([["2026-11-13", 430]]),
+  });
+  a.deps.prepare = async (ask) => { asked.push(`main:${ask}`); return "ready"; };
+  assert.deepEqual(await healthSync({ path: P, ask: true, enable: true, sleep: true }, a.deps), { outcome: "synced" });
+  assert.deepEqual(asked, ["main:true", "sleep:true"]);
+  assert.equal(a.calls.posts[0].body.days.at(-1).sleepMinutes, 430);
+  // a refused sleep grant: the steps of this very sync still go up, with no nightly minutes at all
+  const b = mk({ prepareSleep: async () => "denied", readSleep: async () => { throw new Error("never read"); } });
+  assert.deepEqual(await healthSync({ path: P, ask: true, sleep: true }, b.deps), { outcome: "synced" });
+  assert.equal(b.calls.posts[0].body.days.at(-1).steps, 5000);
+  assert.equal(b.calls.posts[0].body.days.at(-1).sleepMinutes, undefined);
+  // a sleep read that throws does not lose the steps either
+  const c = mk({ prepareSleep: async () => "ready", readSleep: async () => { throw new Error("x"); } });
+  assert.deepEqual(await healthSync({ path: P, ask: true, sleep: true }, c.deps), { outcome: "synced" });
+  assert.equal(c.calls.posts[0].body.days.at(-1).sleepMinutes, undefined);
+});
+
+test("no sleep is read unless the action asks for it", async () => {
+  let reads = 0;
+  const d = mk({ prepareSleep: async () => "ready", readSleep: async () => { reads++; return new Map(); } });
+  await healthSync({ path: P, ask: true }, d.deps);
+  assert.equal(reads, 0);
+  assert.equal(d.calls.posts[0].body.days.at(-1).sleepMinutes, undefined);
+});
+
+test("a night of sleep alone is not an empty read", async () => {
+  const d = mk({
+    read: async () => ({ stepsByDay: new Map<string, number>(), workouts: [] }),
+    prepareSleep: async () => "ready",
+    readSleep: async () => new Map([["2026-11-13", 400]]),
+  });
+  assert.deepEqual(await healthSync({ path: P, sleep: true }, d.deps), { outcome: "synced" });
+  assert.equal(d.calls.posts.length, 1);
+});
+
+test("the payload carries nightly minutes, bounded, and source only for motion", () => {
+  const { payload } = buildPayload({
+    window: ["2026-11-13", "2026-11-14"],
+    stepsByDay: new Map([["2026-11-13", 100]]),
+    workouts: [],
+    offsetMin: IST,
+    sleepByDay: new Map([["2026-11-13", 99_999], ["2026-11-14", 0]]),
+  });
+  assert.equal(payload.days[0].sleepMinutes, MAX_SLEEP_MINUTES);
+  assert.equal(payload.days[1].sleepMinutes, undefined);
+  assert.equal(payload.source, undefined);
+  assert.equal(buildPayload({ window: ["2026-11-13"], stepsByDay: new Map(), workouts: [], offsetMin: IST, source: "motion" }).payload.source, "motion");
+  assert.equal(buildPayload({ window: ["2026-11-13"], stepsByDay: new Map(), workouts: [], offsetMin: IST, source: "health" }).payload.source, undefined);
+});
+
+test("the payload says `sleep: true` only when sleep was asked for AND allowed", async () => {
+  // Without it the server drops every sleepMinutes it is sent and never turns the bot's sleep switch on.
+  const a = mk({ prepareSleep: async () => "ready", readSleep: async () => new Map([["2026-11-13", 430]]) });
+  await healthSync({ path: P, ask: true, enable: true, sleep: true }, a.deps);
+  assert.equal(a.calls.posts[0].body.sleep, true);
+  // sleep not asked for: no flag at all, so an ordinary steps sync can never carry a night
+  const b = mk({ prepareSleep: async () => "ready", readSleep: async () => new Map([["2026-11-13", 430]]) });
+  await healthSync({ path: P, ask: true }, b.deps);
+  assert.equal("sleep" in b.calls.posts[0].body, false);
+  // asked for but refused: steps still go up, and nothing claims a night was read
+  const c = mk({ prepareSleep: async () => "denied", readSleep: async () => new Map([["2026-11-13", 430]]) });
+  await healthSync({ path: P, ask: true, sleep: true }, c.deps);
+  assert.equal("sleep" in c.calls.posts[0].body, false);
+  // and on a binary with no sleep reader at all
+  const d = mk();
+  await healthSync({ path: P, ask: true, sleep: true }, d.deps);
+  assert.equal("sleep" in d.calls.posts[0].body, false);
+});
+
+test("a short wake before midnight does not split one night in two", () => {
+  // An IST night, 22:30 to 06:30, with ten minutes awake at 23:50: one night of 7 h 50, on the day it ends.
+  const hk = sleepSpansFromHK([
+    { value: 3, startDate: "2026-11-13T17:00:00Z", endDate: "2026-11-13T18:20:00Z" },
+    { value: 2, startDate: "2026-11-13T18:20:00Z", endDate: "2026-11-13T18:30:00Z" },   // awake
+    { value: 4, startDate: "2026-11-13T18:30:00Z", endDate: "2026-11-14T01:00:00Z" },
+  ]);
+  assert.deepEqual([...sleepByDayFrom(hk, IST)], [["2026-11-14", 470]]);
+  // the same night as Health Connect reports it, as one session with an awake stage
+  const hc = sleepSpansFromHC([{
+    startTime: "2026-11-13T17:00:00Z", endTime: "2026-11-14T01:00:00Z",
+    stages: [{ stage: 1, startTime: "2026-11-13T18:20:00Z", endTime: "2026-11-13T18:30:00Z" }],
+  }]);
+  assert.deepEqual([...sleepByDayFrom(hc, IST)], [["2026-11-14", 470]]);
+  // a real gap is still two nights: an afternoon nap is not last night's sleep
+  const twice = sleepSpansFromHK([
+    { value: 1, startDate: "2026-11-13T17:00:00Z", endDate: "2026-11-13T23:00:00Z" },   // the night
+    { value: 1, startDate: "2026-11-14T08:00:00Z", endDate: "2026-11-14T09:00:00Z" },   // a nap, nine hours later
+  ]);
+  assert.deepEqual([...sleepByDayFrom(twice, IST)], [["2026-11-14", 360 + 60]]);
+});
+
+test("overlapping sources are merged, so a Watch and a phone are one night", () => {
+  const t = (iso: string) => Date.parse(iso);
+  assert.deepEqual(mergeSpans([
+    { start: t("2026-11-13T22:00:00Z"), end: t("2026-11-14T02:00:00Z") },
+    { start: t("2026-11-14T01:00:00Z"), end: t("2026-11-14T03:00:00Z") },
+    { start: t("2026-11-14T05:00:00Z"), end: t("2026-11-14T06:00:00Z") },
+    { start: t("2026-11-14T06:00:00Z"), end: t("2026-11-14T05:00:00Z") },
+  ]), [
+    { start: t("2026-11-13T22:00:00Z"), end: t("2026-11-14T03:00:00Z") },
+    { start: t("2026-11-14T05:00:00Z"), end: t("2026-11-14T06:00:00Z") },
+  ]);
+});
+
+test("a night belongs to the day it ends on, and only asleep values count (iOS)", () => {
+  const spans = sleepSpansFromHK([
+    { value: 0, startDate: "2026-11-13T21:00:00Z", endDate: "2026-11-13T22:00:00Z" },   // in bed is not sleep
+    { value: 2, startDate: "2026-11-13T22:00:00Z", endDate: "2026-11-13T22:30:00Z" },   // awake is not sleep
+    { value: 3, startDate: "2026-11-13T22:30:00Z", endDate: "2026-11-14T00:30:00Z" },   // core
+    { value: 5, startDate: "2026-11-14T00:30:00Z", endDate: "2026-11-14T01:00:00Z" },   // REM
+    { value: 1, startDate: "x", endDate: "y" },
+  ]);
+  assert.equal(spans.length, 2);
+  // +05:30: the night ends at 06:30 on the 14th, so it is the 14th's
+  assert.deepEqual([...sleepByDayFrom(spans, IST)], [["2026-11-14", 150]]);
+});
+
+test("an Android session counts, less its awake stretches (Android)", () => {
+  const spans = sleepSpansFromHC([
+    {
+      startTime: "2026-11-13T22:00:00Z", endTime: "2026-11-14T04:00:00Z",
+      stages: [
+        { stage: 4, startTime: "2026-11-13T22:00:00Z", endTime: "2026-11-14T00:00:00Z" },
+        { stage: 1, startTime: "2026-11-14T00:00:00Z", endTime: "2026-11-14T00:30:00Z" },  // awake
+        { stage: 7, startTime: "2026-11-14T00:30:00Z", endTime: "2026-11-14T01:00:00Z" },  // awake in bed
+        { stage: 6, startTime: "2026-11-14T01:00:00Z", endTime: "2026-11-14T04:00:00Z" },
+      ],
+    },
+    // a session with no stages counts whole, which is what Health Connect's own duration says
+    { startTime: "2026-11-12T23:00:00Z", endTime: "2026-11-13T01:00:00Z" },
+    { startTime: "nope", endTime: "nope" },
+  ]);
+  assert.deepEqual([...sleepByDayFrom(spans, IST)], [["2026-11-13", 120], ["2026-11-14", 300]]);
 });
