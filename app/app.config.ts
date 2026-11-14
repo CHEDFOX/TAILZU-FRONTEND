@@ -103,6 +103,10 @@ const LOCATION_USAGE =
 const HEALTH_USAGE =
   "X0 Bot reads your steps and workouts when you connect Apple Health to a fitness bot you made, so the bot can count " +
   "your active days and keep your streak. It reads nothing else and never uses it for ads.";
+// Apple refuses an upload without this key (ITMS-90683) because the Health library also contains Health's save calls,
+// even though X0 Bot never asks to write and never shows this text. It says what is true: nothing is written.
+const HEALTH_UPDATE_USAGE =
+  "X0 Bot never writes to Apple Health. It only reads your steps and workouts for a fitness bot you made and switched on.";
 
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
@@ -122,8 +126,10 @@ const config: ExpoConfig = {
   // never be uploaded; 8.7 is on the store now too. The iOS release job checks
   // this against the live store version before it builds (tools/ci/ios-version.mjs).
   // The App Store has 8.5 live (lookup, 19 Oct 2026), so Apple refuses any build
-  // at 8.5 or below, 8.4 included. 8.8 is what build 79 carried, so build 80 stays on it.
-  version: "8.8",
+  // at 8.5 or below, 8.4 included. 8.8 was approved, and Apple closed that train
+  // (14 Nov 2026, errors 90186 / 90062), so this build is 8.9. The lookup only sees the
+  // LIVE version, never an approved one not yet released: check App Store Connect too.
+  version: "8.9",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
@@ -300,12 +306,13 @@ const config: ExpoConfig = {
       // often, this key goes and nothing else changes.
       NSLocationDefaultAccuracyReduced: true,
       // READ-ONLY steps and workouts for a fitness bot the person made and
-      // switched on. Nothing is ever written to Apple Health, so there is no
-      // NSHealthUpdateUsageDescription (the library's plugin is told to skip
-      // it), no clinical-records key, and no healthkit entry in
-      // UIRequiredDeviceCapabilities — a phone without HealthKit simply never
-      // shows the switch.
+      // switched on. Nothing is ever written to Apple Health and write access
+      // is never asked for; the update text exists only because Apple's upload
+      // check sees the library's save calls (ITMS-90683). No clinical-records
+      // key, and no healthkit entry in UIRequiredDeviceCapabilities — a phone
+      // without HealthKit simply never shows the switch.
       NSHealthShareUsageDescription: HEALTH_USAGE,
+      NSHealthUpdateUsageDescription: HEALTH_UPDATE_USAGE,
       // The biometricPrompt action (expo-local-authentication): the Code
       // bot's and connected apps' approvals ask for Face ID before a bot acts.
       // SecureStore links LocalAuthentication too.
@@ -698,8 +705,9 @@ const config: ExpoConfig = {
     "./modules/tulmi-share/plugin/withTulmiShare",
     // APPLE HEALTH, read only. The two option names are the plugin's own
     // (app.plugin.ts): the share string is handed in so the plugin cannot
-    // replace it with "X0 Bot wants to read your health data", `false` skips
-    // the update string entirely (nothing is ever written to Health), and
+    // replace it with "X0 Bot wants to read your health data", the update
+    // string says nothing is written (Apple requires the key; write access is
+    // never requested), and
     // background:false leaves out the background-delivery entitlement, so the
     // core pod's launch hook has no type to observe. The package has no Android
     // code; Health Connect is the Android half, behind the build switch.
@@ -707,7 +715,7 @@ const config: ExpoConfig = {
       "@kingstinct/react-native-healthkit",
       {
         NSHealthShareUsageDescription: HEALTH_USAGE,
-        NSHealthUpdateUsageDescription: false,
+        NSHealthUpdateUsageDescription: HEALTH_UPDATE_USAGE,
         background: false,
       },
     ],
