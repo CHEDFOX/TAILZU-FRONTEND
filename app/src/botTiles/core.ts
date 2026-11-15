@@ -6205,6 +6205,8 @@ export class Peek {
   spec: PeekSpec;
   rand: () => number;
   paused = false;
+  /** While it holds he does not hide: up he goes, and up he stays (something is waiting on them, and he shows it). */
+  hold = false;
   state: PeekState = "behind";
   /** Seconds to the next visit, and seconds left of the one he is on. */
   wait: number;
@@ -6257,7 +6259,8 @@ export class Peek {
     if (this.state === "behind") {
       if (b.grounded && b.floor !== s.hidden) b.floor = s.hidden;
       this.wait -= dt;
-      if (this.wait <= 0 && b.grounded) this.rise();
+      // Something waiting on them brings him up at once, and keeps him there: hiding is for having nothing to say.
+      if ((this.hold || this.wait <= 0) && b.grounded) this.rise();
       return;
     }
     if (this.state === "rising") {
@@ -6270,7 +6273,7 @@ export class Peek {
     }
     if (this.state === "up") {
       this.left -= dt;
-      if (this.left <= 0 && b.grounded) this.drop();
+      if (this.left <= 0 && b.grounded && !this.hold) this.drop();
       return;
     }
     if (b.grounded) { this.state = "behind"; this.wait = this.pick(s.every); }

@@ -637,7 +637,7 @@ export interface BotThoughtSpec {
   /** A mark instead of words (BotMark, botTiles/core.ts Mark): a soft blob of ink dots riding over him, holding `dots` of them
    *  (1..3), the edge wobbling with his own motion. `urgent`: the dots are full and a ring leaves it now and then; otherwise
    *  they are small and quiet. It takes restText's place entirely — nothing is written at rest. */
-  restMark?: { dots: number; urgent?: boolean };
+  restMark?: { dots: number; urgent?: boolean; says?: string };
   /** A state path holding true while it is open. The app writes true when the resting box is tapped and false when the veil is
    *  tapped or back is pressed; the server's actions may write it too. */
   openPath: string;

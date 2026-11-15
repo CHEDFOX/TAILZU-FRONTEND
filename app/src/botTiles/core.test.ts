@@ -649,6 +649,17 @@ test("Peek: he lives behind the bar, jumps the ledge into full view, stays a few
   // the same seed, the same comings and goings; another seed, another rhythm
   assert.deepStrictEqual(Array.from(run(3).t.x), Array.from(a.t.x), "deterministic");
   assert.notDeepStrictEqual(Array.from(run(9).t.x), Array.from(a.t.x), "another seed, another rhythm");
+  // something waiting on them: he comes up at once and does not hide again
+  const h = stageBot(5), hp = new Peek(h, { hidden: h.floor + 18, ledge: h.floor, crownH: 30, every: [99, 99], stay: [1, 1] }, 6);
+  hp.hold = true;
+  let up = 0;
+  for (let f = 0; f < 60 * 14; f++) { h.step(1 / 60); hp.step(1 / 60); if (hp.state === "up") up++; }
+  assert.equal(hp.state, "up", "he waits up there while it holds");
+  assert.ok(up > 60 * 10, `and nearly all of that time (${Math.round(up / 60)}s of 14)`);
+  hp.hold = false;
+  for (let f = 0; f < 60 * 6; f++) { h.step(1 / 60); hp.step(1 / 60); }
+  assert.equal(hp.state, "behind", "and goes back behind once nothing is waiting");
+
   // paused (his thought is open), he stays where he is
   const t = stageBot(5), p = new Peek(t, { hidden: t.floor + 18, ledge: t.floor, crownH: 30, every: [0.2, 0.2], stay: [99, 99] }, 4);
   for (let f = 0; f < 60 * 4; f++) { t.step(1 / 60); p.step(1 / 60); }
