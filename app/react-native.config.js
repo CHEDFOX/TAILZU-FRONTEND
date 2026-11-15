@@ -20,10 +20,23 @@
  */
 const androidHealth = (process.env.TULMI_ANDROID_HEALTH ?? "").trim().toLowerCase() === "on";
 
+/**
+ * META IS AN ANDROID-ONLY SDK (plugins/withNoMetaIos.js).
+ *
+ * react-native-fbsdk-next has a podspec, so React Native's own autolinking
+ * would put it in the iPhone Podfile even with the Expo half excluded. This is
+ * that half of the switch; package.json's `expo.autolinking.ios.exclude` is the
+ * other, for the Expo module (FacebookAppDelegate, which otherwise runs Meta's
+ * launch hook on every launch whatever the server knob says) and for
+ * expo-tracking-transparency. Change one, change the other.
+ *
+ * ANDROID IS UNTOUCHED: the package stays installed and linked there, and
+ * src/telemetry/meta.ts requires it lazily, so neither phone's bundle can crash
+ * on a module that is not in its binary.
+ */
 module.exports = {
-  dependencies: androidHealth
-    ? {}
-    : {
-        "react-native-health-connect": { platforms: { android: null } },
-      },
+  dependencies: {
+    "react-native-fbsdk-next": { platforms: { ios: null } },
+    ...(androidHealth ? {} : { "react-native-health-connect": { platforms: { android: null } } }),
+  },
 };

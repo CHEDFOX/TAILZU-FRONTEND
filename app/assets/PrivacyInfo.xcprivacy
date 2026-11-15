@@ -199,13 +199,22 @@
       <key>NSPrivacyCollectedDataTypePurposes</key>
       <array>
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <!-- Product Personalization too, which is what the App Privacy answers have always said
+             (docs/store-privacy.md §3). The bots' shared memory is written from what the person
+             tells them and is read back to answer in their terms, so this content does shape what
+             they are shown — "App Functionality" alone would have been the narrower answer, and
+             the two have to agree because the manifest ships in the binary. -->
+        <string>NSPrivacyCollectedDataTypePurposeProductPersonalization</string>
       </array>
     </dict>
+    <!-- Crash Data: Sentry. LINKED, as the App Privacy answers say. sentry.ts sets no user, but a
+         crash report carries the account's id in its breadcrumbs and tags often enough that "not
+         linked" is not an honest answer (the deletion screen says so too: deleteAccount.ts). -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeCrashData</string>
       <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
+      <true/>
       <key>NSPrivacyCollectedDataTypeTracking</key>
       <false/>
       <key>NSPrivacyCollectedDataTypePurposes</key>
@@ -214,11 +223,15 @@
         <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
       </array>
     </dict>
+    <!-- Performance Data: Sentry traces and the keyboard's counters. LINKED, for the same reason
+         as Crash Data above. Both purposes stay: App Functionality (a slow screen is fixed from
+         these) and Analytics. App Store Connect needs App Functionality adding beside Analytics,
+         which is the owner half of this change. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypePerformanceData</string>
       <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
+      <true/>
       <key>NSPrivacyCollectedDataTypeTracking</key>
       <false/>
       <key>NSPrivacyCollectedDataTypePurposes</key>

@@ -60,6 +60,28 @@ export function runArrivalSync(action: { items?: unknown; ask?: boolean }): Prom
 }
 
 /**
+ * FORGET EVERY ARMED PLACE. Called when the account goes — sign-out, a session revoked from elsewhere, an account
+ * deleted: once, from client/bootstrap.ts's forgetAccountData, which the SIGNED_OUT branch of useAuthSession.ts runs
+ * on every one of those paths.
+ *
+ * The pending x0.arrive.* requests are the phone's own notifications and they hold the item's TITLE and its PLACE.
+ * Left armed they would fire on arrival for an account that no longer exists, or for the next person to sign in on
+ * the same phone — which Apple's account-deletion page and TN3194 both say must not happen. Nothing is reported to
+ * anyone either way; this only unarms what the phone was watching.
+ *
+ * Never throws: a binary without the module (Expo Go, a build older than arrival, an Android build with
+ * TULMI_ANDROID_ARRIVAL off) has nothing armed to clear, and no sign-out may fail over this. It does wait on the
+ * native call, so its caller does not wait on it.
+ */
+export async function forgetArrival(): Promise<void> {
+  try {
+    await tulmiPerms()?.arrivalClear?.();
+  } catch {
+    // nothing kept is worth failing a sign-out for
+  }
+}
+
+/**
  * requestPermission "backgroundLocation". ANDROID ONLY: on the iPhone the system itself watches the region, so there is nothing
  * of the kind to ask for and the honest answer is "undetermined", which the action reads as unsupported.
  *

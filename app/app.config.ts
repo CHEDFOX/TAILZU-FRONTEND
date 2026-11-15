@@ -81,12 +81,14 @@ const TULMI_ANDROID_CALENDAR = (process.env.TULMI_ANDROID_CALENDAR ?? "").trim()
 // is compiled instead and no Play services location class is in the binary. Steps have no Play
 // declaration; the driving check has none either (it is not background location).
 const TULMI_ANDROID_MOTION = (process.env.TULMI_ANDROID_MOTION ?? "").trim().toLowerCase() === "on";
-// ARRIVAL: "Remind me when I get there". THIS IS THE ONE THAT WAITS FOR PLAY. Android has no
+// ARRIVAL: "Remind me when I get there". THIS IS THE ONE PLAY REVIEWS BY HAND. Android has no
 // equivalent of the iPhone's location notification trigger, where the system both watches the place
 // and shows the reminder: a geofence is delivered to the app, so it needs ACCESS_FINE_LOCATION and
 // ACCESS_BACKGROUND_LOCATION, which means Play's background-location declaration, a demo video and a
-// human review (backend docs/owner-8.9.1.md). It ships OFF in every profile until Play has
-// answered, and it is its own switch so it can never hold the other two — or the release — up.
+// human review (backend docs/owner-8.9.1.md 6.1 and 6.2). It is ON from 8.9.1 in `preview` and `production`
+// as well as `n0`, and it stays its own switch so it can be turned back off on its own if Play asks
+// for a change. THE DECLARATION MUST BE APPROVED BEFORE THE ANDROID RELEASE IS UPLOADED: nothing in
+// the repository can see Play's answer, so that is an owner step, not a check.
 // Off: both permissions stay blocked, no geofencing is in the binary, no receiver is in the
 // manifest, and abilities().arrival is false, so the server draws no switch on an Android phone.
 const TULMI_ANDROID_ARRIVAL = (process.env.TULMI_ANDROID_ARRIVAL ?? "").trim().toLowerCase() === "on";
@@ -107,12 +109,16 @@ const metaPlugin: [string, Record<string, unknown>][] =
           // Android's advertising id, which is what credits an install to an
           // ad there. iPhone's needs the tracking prompt, and gets none.
           advertiserIDCollectionEnabled: true,
-          // iPhone: off until the server turns it on (ads.meta.ios.enabled); then Apple's tracking prompt comes first
-          // (expo-tracking-transparency below, src/telemetry/meta.ts), and Meta measures in aggregate for those who
-          // decline (SKAdNetwork ids are added by the plugin). The prompt's words are expo-tracking-transparency's.
+          // The plugin's own iPhone tracking option, left false. It is belt and braces: plugins/withNoMetaIos (first
+          // in the plugin list) takes every Meta and tracking key back out of Info.plist whatever is set here, and
+          // the iPhone build links neither Meta nor expo-tracking-transparency (package.json's autolinking exclude).
           iosUserTrackingPermission: false,
         },
       ], [
+        // ANDROID'S AD_ID PERMISSION, and nothing else. This plugin's other half writes
+        // NSUserTrackingUsageDescription, which plugins/withNoMetaIos deletes again: the iPhone build has no App
+        // Tracking Transparency code in it, so a string for a prompt it cannot show would be a declaration with no
+        // screen behind it. The words are kept here for the day Meta ships on iPhone in its own reviewed build.
         "expo-tracking-transparency",
         { userTrackingPermission: "X0 Bot uses this to see which ads brought you here. Turn it off any time in Settings." },
       ]]
@@ -678,8 +684,9 @@ const config: ExpoConfig = {
       // answers "unknown" for ever there. play-services-location declares no permissions of its own,
       // so nothing else brings it in.
       ...(TULMI_ANDROID_MOTION ? ["com.google.android.gms.permission.ACTIVITY_RECOGNITION"] : []),
-      // ARRIVAL, behind TULMI_ANDROID_ARRIVAL, which is off in every shipping profile until Play
-      // has approved the background-location declaration. A geofence needs precise location, and
+      // ARRIVAL, behind TULMI_ANDROID_ARRIVAL, which is ON in the shipping profiles from 8.9.1 and
+      // needs Play's approved background-location declaration before the release is uploaded (the
+      // switch is the build's half; the declaration is the owner's). A geofence needs precise location, and
       // one that fires with the app closed needs "Allow all the time". (RECEIVE_BOOT_COMPLETED is
       // deliberately NOT here: expo-notifications already declares it in every build, with the
       // BOOT_COMPLETED receiver that reschedules this app's own local notifications, so this app
@@ -738,9 +745,11 @@ const config: ExpoConfig = {
       // From 8.9.1 three of these move with their own build switch (see the
       // switches at the top): ACTIVITY_RECOGNITION with TULMI_ANDROID_MOTION,
       // FINE and BACKGROUND location with TULMI_ANDROID_ARRIVAL, READ_CALENDAR
-      // with TULMI_ANDROID_CALENDAR. Every shipping profile has all three off, so
-      // the three permissions are removed from the release candidate's merged
-      // manifest exactly as they were before. WRITE_CALENDAR and
+      // with TULMI_ANDROID_CALENDAR. From 8.9.1 the shipping profiles have all
+      // three ON, so those permissions ARE in the release candidate's merged
+      // manifest and are blocked only in a build whose own switch is off (the
+      // `development` profile, and anything that sets none of them).
+      // WRITE_CALENDAR and
       // FOREGROUND_SERVICE_LOCATION are blocked whatever the switches say.
       // RECEIVE_BOOT_COMPLETED is neither declared nor blocked by this app:
       // expo-notifications declares it, and the receivers behind the two switches
@@ -770,9 +779,9 @@ const config: ExpoConfig = {
             "com.google.android.gms.permission.ACTIVITY_RECOGNITION",
           ]),
       // FINE and BACKGROUND location: arrival reminders only (TULMI_ANDROID_ARRIVAL),
-      // which is off in every shipping profile until Play has approved the
-      // background-location declaration. "Use my location" still asks for COARSE
-      // and nothing more, on every build.
+      // which is on in the shipping profiles from 8.9.1 and needs Play's approved
+      // background-location declaration before the release is uploaded. "Use my
+      // location" still asks for COARSE and nothing more, on every build.
       ...(TULMI_ANDROID_ARRIVAL
         ? []
         : ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_BACKGROUND_LOCATION"]),
@@ -836,6 +845,17 @@ const config: ExpoConfig = {
   // Expo to require() its main entry as if it were a plugin, which throws
   // on "Unexpected token 'export'".
   plugins: [
+    // META OFF THE IPHONE, whatever META_APP_ID and META_CLIENT_TOKEN are set to for the build. Both Meta plugins
+    // stay at the end of this list, so the Android build is unchanged; this takes the iOS half back out — the
+    // Facebook keys, the tracking prompt's string, the Meta SKAdNetwork ids and the fb scheme — and package.json's
+    // expo.autolinking.ios.exclude keeps the two pods and Meta's launch hook out of the iPhone project, so there is
+    // no Meta code in that binary either. App Review 2.5.19: nothing dormant, and nothing a server knob can turn on
+    // after approval.
+    //
+    // FIRST IN THIS LIST ON PURPOSE, which is what makes it run LAST: Expo composes an `Info.plist` mod so that the
+    // plugin registered later runs earlier (@expo/config-plugins' withMod calls `nextMod` after its own action). At
+    // the end of the list the Meta plugins wrote their keys back in again, which this check caught.
+    "./plugins/withNoMetaIos",
     // No background playback: nothing plays audio behind the lock screen.
     // Left on (the plugin's default), it put a media-playback foreground
     // service and FOREGROUND_SERVICE_MEDIA_PLAYBACK into the Android build,
@@ -983,6 +1003,8 @@ const config: ExpoConfig = {
     ],
     "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
+    // ANDROID'S META SDK. Everything the iPhone half of these two would write is taken back out by
+    // ./plugins/withNoMetaIos at the top of this list.
     ...metaPlugin,
   ],
   extra: {
@@ -995,7 +1017,10 @@ const config: ExpoConfig = {
     posthogHost: process.env.POSTHOG_HOST ?? "https://us.i.posthog.com",
     revenueCatIosKey: process.env.REVENUECAT_IOS_KEY ?? "",
     revenueCatAndroidKey: process.env.REVENUECAT_ANDROID_KEY ?? "",
-    // Only when the SDK is configured in this build (metaPlugin above).
+    // Only when the SDK is configured in this build (metaPlugin above). ANDROID READS IT AND THE IPHONE DOES NOT:
+    // src/telemetry/meta.ts leaves at once on iOS, where the binary has no Meta SDK to start. The id is not a secret
+    // and one config serves both platforms, so it is left as it is rather than branched on an environment variable
+    // that only EAS sets.
     metaAppId: metaPlugin.length ? META_APP_ID : "",
   },
 };

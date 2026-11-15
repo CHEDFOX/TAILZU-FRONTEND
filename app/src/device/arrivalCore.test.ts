@@ -1,10 +1,12 @@
 // node --test --experimental-strip-types src/device/arrivalCore.test.ts
 //
 // Arrival reminders' rules (docs: perms2 7): nothing is ever POSTed, the set is bounded and checked, Approximate Location is
-// refused rather than armed, Android's "Allow all the time" step is its own outcome and not a refusal, and a tap opens the item
-// it came from.
+// refused rather than armed, Android's "Allow all the time" step is its own outcome and not a refusal, a tap opens the item
+// it came from, and the armed places are unarmed when the account goes.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   ARRIVE_PREFIX, MAX_ITEMS, RADIUS_DEFAULT, RADIUS_MAX, RADIUS_MIN, arrivalOpening, arrivalSync, arrivalTapScreen, cleanItems,
   type ArrivalDeps,
@@ -120,4 +122,31 @@ test("a tap on the phone's own arrival notification opens that item, and nothing
   // Any other push is left exactly as it was: null means "not one of ours".
   assert.equal(arrivalOpening({ kind: "bots.update", screen: "home" }), null);
   assert.equal(arrivalOpening({ kind: "arrival" }), null);
+});
+
+// AND THE PLACES ARE UNARMED WHEN THE ACCOUNT GOES (Apple's account-deletion page, TN3194). The pending x0.arrive.*
+// notifications hold the item's title and its place, so one left armed would fire for a deleted account, or for the
+// next person on the phone. The wiring is read here rather than mocked, because what matters is that the one path
+// that always arrives really calls it: the SIGNED_OUT branch runs forgetAccountData, which clears them.
+test("forgetting an account clears the armed places, once, and nothing waits on it", () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+
+  // The one guarded call, exactly as deps.clear reaches the module: through natives.ts, optional, never throwing.
+  const arrival = read("src/device/arrival.ts");
+  assert.match(arrival, /export async function forgetArrival\(\): Promise<void> \{[\s\S]*?tulmiPerms\(\)\?\.arrivalClear\?\.\(\)[\s\S]*?catch/);
+
+  // SIGN-OUT, A SESSION REVOKED, AN ACCOUNT DELETED: all one event, and it wipes the account's data.
+  const auth = read("src/sdui/shell/hooks/useAuthSession.ts");
+  const signedOut = auth.slice(auth.indexOf('if (e === "SIGNED_OUT"'), auth.indexOf("if (s) void syncKeyboardCredentials"));
+  assert.ok(signedOut.includes("forgetAccountData()"), "the SIGNED_OUT branch must forget the account's data");
+  // ONE CALL, NOT TWO. forgetAccountData clears them itself, so a second call here only started the same native
+  // work twice at once.
+  assert.ok(!auth.includes("forgetArrival"), "arrival is cleared through forgetAccountData, not a second time here");
+
+  const boot = read("src/sdui/client/bootstrap.ts");
+  const forget = boot.slice(boot.indexOf("export async function forgetAccountData"));
+  assert.ok(forget.includes("void forgetArrival()"), "forgetAccountData must clear the armed places");
+  // AND THE REST OF THE WIPE DOES NOT WAIT ON THE NATIVE CALL: the keyboard's token, the local store and the
+  // storage sweep may not sit behind a geofence task that can settle neither way.
+  assert.ok(!forget.includes("await forgetArrival()"), "the wipe must not wait on the arrival module");
 });

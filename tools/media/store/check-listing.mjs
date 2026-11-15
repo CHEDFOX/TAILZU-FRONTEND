@@ -106,6 +106,26 @@ if (config) {
   if (/\bHEALTH_USAGE\b/.test(config) && !/apple health/i.test(appStore)) {
     problems.push("Description / What's New: the build has a Health usage string but the App Store text never says Apple Health (App Review 2.5.1)");
   }
+  // THE SAME RULE FOR THE OTHER THREE IPHONE READS OF 8.9.1. Only Apple Health was tested for, so the Description
+  // could name it and say nothing about Motion & Fitness, the calendar or Reminders — which is what it did. The
+  // DESCRIPTION is what each one is checked against, not What's New: What's New is about one version, and licence
+  // 3.3.3(H) asks for Motion & Fitness to be "clearly evident in Your marketing text", which is the description a
+  // person reads before installing. Unlike the Android switches, these three are in EVERY iPhone build (the keys are
+  // unconditional in app.config.ts and check-config-shape.mjs requires them), so this only cuts one way.
+  const description = bodyOf(/^description/i);
+  const IPHONE_READS = [
+    ["NSMotionUsageDescription", /motion & fitness/i, "Motion & Fitness (licence 3.3.3(H): \"clearly evident in Your marketing text\")"],
+    // The calendar pattern has to name the PHONE's calendar, not the app's own: the description says "your own calendar
+    // and to-do list" and "plans my workouts around my calendar" in paragraphs that have nothing to do with the busy-times
+    // read, so a bare /calendar/ passed even with the whole "from your phone" paragraph deleted.
+    ["NSCalendarsFullAccessUsageDescription", /\bbusy\b[^.]*\bcalendar\b|\bcalendar\b[^.]*\bbusy\b/i, "the phone's calendar (App Review 2.5.1)"],
+    ["NSRemindersFullAccessUsageDescription", /\breminders\b/i, "the phone's Reminders (App Review 2.5.1)"],
+  ];
+  for (const [key, says, what] of IPHONE_READS) {
+    if (new RegExp(`\\b${key}\\b`).test(config) && !says.test(description)) {
+      problems.push(`Description: the build has ${key} but the description never says it reads ${what}`);
+    }
+  }
   // HEALTH CONNECT IS CONDITIONAL, so the config alone cannot answer it: app.config.ts holds READ_STEPS and READ_EXERCISE
   // inside `TULMI_ANDROID_HEALTH ? [...] : []`, so those words are in the file for EVERY build. What decides is the build
   // profile's own switch, recorded in app/native-inputs.lock (androidHealth.production), or --android-health on the
@@ -144,6 +164,20 @@ if (config) {
     if (on === "off" && said) {
       problems.push(`App access instructions: the Play text describes ${what}, but this Android build is built without it (app/native-inputs.lock ${lockKey}.production is off)`);
     }
+  }
+  // AND THE ONE OF THE THREE GOOGLE ALSO ASKS FOR IN THE LISTING ITSELF. Play's prominent-disclosure rule puts the
+  // background-location words "within the app itself as well as in the app description and website" (Play help 9799150),
+  // so the Full description carries them too, not only App access instructions, and it cuts both ways as above. The words
+  // Play names are "location", "background" and one of its closed phrases, which is why all three are looked for.
+  const fullPlay = bodyOf(/^full description/i);
+  const saysBackground = /\blocation\b/i.test(fullPlay) && /\bin the background\b/i.test(fullPlay)
+    && /when the app is closed or not in use/i.test(fullPlay);
+  const arrival = lockedSwitch("androidArrival");
+  if (arrival === "on" && !saysBackground) {
+    problems.push("Full description: the Android build uses location in the background for arrival reminders, but the Full description never says so (Play help 9799150: the disclosure belongs in the app description too)");
+  }
+  if (arrival === "off" && saysBackground) {
+    problems.push("Full description: it discloses background location, but this Android build is built without it (app/native-inputs.lock androidArrival.production is off)");
   }
 }
 if (privacy) {

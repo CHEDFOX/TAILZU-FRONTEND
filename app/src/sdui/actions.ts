@@ -943,7 +943,7 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
         let unsupported = false;
         // ONE APP CARD BEFORE THE SYSTEM PROMPT (SPEC 3.4 point 4). `primed: true` means the server's own card's
         // Continue button fired this, so the card has already been shown; without it, ours is.
-        if ((action as { primed?: unknown }).primed !== true) {
+        if (action.primed !== true) {
           const went = await primedCard(String(action.permission));
           if (!went) break;
         }
