@@ -161,18 +161,6 @@ export const CORE_COMPONENTS = [
   /** NOT A COMPONENT — BotStage's on.onDoubleTap and a Home tile's doubleTap (BotTiles.tsx): a single tap then waits 260 ms. */
   "DoubleTap",
   /**
-   * NOT A COMPONENT — BotStage's `stand: "peek"` (bots/BotStage.tsx, botTiles/core.ts Peek): instead of standing on his stage
-   * he lives behind the bar under it, with only his head over the line, and every so often jumps the ledge to stand in full
-   * view for a few moments. A build that does not say it is sent a stage he stands on, exactly as before.
-   */
-  "BotPeek",
-  /**
-   * NOT A COMPONENT — BotThoughtSpec.restMark (botTiles/core.ts Mark): the mark he carries at rest, drawn on his own canvas
-   * as a soft blob of ink dots holding one dot for each thing that wants them, its edge wobbling with his own motion. A
-   * build that does not say it is sent words in a box, as before.
-   */
-  "BotMark",
-  /**
    * NOT A COMPONENT — the kit's extras for the new screens: TextField keyboard / autoFocus / maxLength (TextField.tsx);
    * Screen and Scroll startAtEnd; a dotted border with a radius drawn dotted on Android too (Stack.tsx); callEndpoint.stay
    * (a phone never fetches the screen again after a write, so it has nothing to skip); a failed call's { code, message } at

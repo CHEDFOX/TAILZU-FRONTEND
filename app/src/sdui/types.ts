@@ -634,10 +634,6 @@ export interface BotThoughtSpec {
   style: "home" | "space";
   /** The words in the small box riding over him at rest (a tap on it opens it). None: no box at rest. */
   restText?: string;
-  /** A mark instead of words (BotMark, botTiles/core.ts Mark): a soft blob of ink dots riding over him, holding `dots` of them
-   *  (1..3), the edge wobbling with his own motion. `urgent`: the dots are full and a ring leaves it now and then; otherwise
-   *  they are small and quiet. It takes restText's place entirely — nothing is written at rest. */
-  restMark?: { dots: number; urgent?: boolean; says?: string };
   /** A state path holding true while it is open. The app writes true when the resting box is tapped and false when the veil is
    *  tapped or back is pressed; the server's actions may write it too. */
   openPath: string;
@@ -665,9 +661,6 @@ export interface BotStageProps {
   hit?: "bot" | "stage";
   /** false: he never plays with props (the person's own bot). */
   toys?: boolean;
-  /** What he does with himself while he is speaking (the `speak` action): one of these catalog moments every couple of
-   *  seconds, so words never come out of a bot standing perfectly still. */
-  talkMoments?: string[];
   roam?: BotRoam;
   /** While it holds he walks out at `outSide` (none: the edge nearer him then, as the prototype does); when it stops he walks back
    *  in from the edge he left by. */
