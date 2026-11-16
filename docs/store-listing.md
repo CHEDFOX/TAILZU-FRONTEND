@@ -459,6 +459,15 @@ A team of bots for your day: a voice keyboard, plans, trips, notes and more.
 
 ## Screenshots
 
+> **THE SCREENSHOTS AND THE FRAMES STILL DRAW THE OLD BOT.** On 13 Nov the app's icon became the dotted Blip
+> (`tools/media/brand/blip-icon/cool`), and `art.mjs` still paints the earlier black bot with the cream eyes from
+> `tools/media/brand/x0-icon` — so re-running `build.mjs` reproduces the old character, it does not fix it. The four
+> **icon files and the Play feature graphic are fixed**: `node tools/media/store/store-icons.mjs` makes them from
+> `app/assets/icon.png` itself, the file the binary ships, so they can never fall behind the app again, and its
+> `play-feature.png` supersedes `build.mjs`'s. Porting `art.mjs` to the Blip is its own job, and until it is done the
+> phone screenshots are the one part of the Play listing that is off-brand. Listing graphics can be replaced at any
+> time, with no new build and no re-review, so this does not hold up an upload.
+
 Built by `node tools/media/store/build.mjs` (one command: it renders the app's real screens with the server's own
 builders and the phone's own renderer, then composes every frame). Files are in `tools/media/store/out/`:
 `ios-6.9/` (1320 x 2868), `ios-6.5/` (1284 x 2778), `play-phone/` (1080 x 1920) and `play-feature.png` (1024 x 500),

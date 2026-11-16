@@ -818,7 +818,17 @@ const config: ExpoConfig = {
     // keep his feelers; adaptive-icon-background.png is the black ground, so the
     // launcher's parallax and press animations never show a seam. icon.png is the
     // whole icon, opaque, for iOS and the stores.
-    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#0A0A0A" },
+    // monochromeImage is Android 13+'s themed icon: the launcher throws our colours away and tints ONE shape to
+    // the wallpaper, so the layer is the bot's silhouette in flat white on nothing. It is drawn smaller than the
+    // other two on purpose — an adaptive layer only ever shows its middle 72 of 108, and art at this one's full
+    // width came out with the dots over the edge and the feelers cut off. Without it Android 13+ draws our black
+    // icon untinted beside a screen of tinted ones, which is the one place the app looks unfinished.
+    adaptiveIcon: {
+      foregroundImage: "./assets/adaptive-icon.png",
+      backgroundImage: "./assets/adaptive-icon-background.png",
+      monochromeImage: "./assets/adaptive-icon-monochrome.png",
+      backgroundColor: "#0A0A0A",
+    },
     intentFilters: [
       {
         action: "VIEW",
