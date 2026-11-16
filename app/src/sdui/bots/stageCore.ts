@@ -29,6 +29,32 @@ export const STAGE = {
   openMs: 360, fullMs: 420, veilMs: 260, unfullMs: 380, standMs: 1300,
 };
 
+/**
+ * A stage he does not stand on but lives at the foot of (`stand: "peek"`, core.ts Peek): `hide` is how much of him the bar
+ * under the stage keeps, as a share of his size — his ground is that far below the stage's floor, so the canvas's own bottom
+ * edge cuts him off there and only his head shows. `every` and `stay`: seconds between his visits over the ledge, and seconds
+ * he stays up.
+ */
+export const PEEK = { hide: 0.62, room: 0.8, trail: 0.55, every: [7, 16] as [number, number], stay: [2.4, 5.2] as [number, number] };
+
+/** How far under the stage's floor his own ground is: the part of him the bar keeps. */
+export function peekHide(size: number): number {
+  return Math.max(2, Math.round(size * PEEK.hide));
+}
+
+/**
+ * The least a peeking stage is drawn: him whole on the ledge, and the room over it his jump needs — otherwise the moment he
+ * comes into full view is the moment his head is cut off by the top of his own canvas.
+ */
+export function peekHeight(height: number, size: number, restBox: boolean, markD = 0): number {
+  const full = minStageHeight(size, false) + Math.round(size * PEEK.room);
+  // A mark costs much less room than a pill did: a short trail and the blob itself, with none of the pill's room over it.
+  const box = markD > 0
+    ? Math.ceil(minStageHeight(size, false) + trailRoom(PEEK.trail) + markD)
+    : restHeight(height, size, restBox);
+  return Math.max(full, box - peekHide(size));
+}
+
 export interface Rect { x: number; y: number; w: number; h: number }
 /** The window: its size and its safe insets. */
 export interface Win { w: number; h: number; top: number; bottom: number }
