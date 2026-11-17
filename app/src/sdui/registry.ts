@@ -94,6 +94,13 @@ export const CORE_COMPONENTS = [
   /** A bot's own tiny bot on its pages (BotBuddy.tsx; types.ts BotBuddyProps), on the same core. */
   "BotBuddy",
   /**
+   * He rises from BEHIND an edge of the screen, holds, and ducks back (BotPeek.tsx; types.ts BotPeekProps) — the
+   * window's own gesture (TAILZU-DESKTOP blip.js `rise`), clipped by the edge so he is only ever half there, and
+   * never crossing the screen: he takes his next place while he is below the edge. `notch` hangs him upside down
+   * from it. Builds without it keep the ask bar and his walk along the bottom of Home.
+   */
+  "BotPeek",
+  /**
    * NOT A COMPONENT — BotBuddy's act "carry" and `doneWhen` (BotBuddy.tsx): a lane under a message on its way, where
    * he hauls it as a bag, heavier each trip, and sets it down when the answer is here. Others get "Asking…".
    */

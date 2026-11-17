@@ -29,6 +29,7 @@ import { BlipWalkOut } from "../../onboard/BlipWalkOut";
 import { BotTiles } from "../bots/BotTiles";
 import { BotCard } from "../bots/BotCard";
 import { BotBuddy } from "../bots/BotBuddy";
+import { BotPeek } from "../bots/BotPeek";
 import { HeadBar, LiveMarkNode, WriteOn } from "../bots/HomeHead";
 import { BotStage } from "../bots/BotStage";
 import { BotCrowd } from "../bots/BotCrowd";
@@ -69,7 +70,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   // Entrance motion, and the opening scene drawn into what it becomes.
   Rise, MorphOut,
   // The bots: Home's tiles, the card with one on top, a bot's own tiny bot, Home's welcome.
-  BotTiles, BotCard, BotBuddy, BlipWalkOut,
+  BotTiles, BotCard, BotBuddy, BotPeek, BlipWalkOut,
   // Home's header, alive (HomeHead.tsx).
   WriteOn, LiveMark: LiveMarkNode, HeadBar,
   // A running page or artifact, sandboxed (LiveView.tsx).
