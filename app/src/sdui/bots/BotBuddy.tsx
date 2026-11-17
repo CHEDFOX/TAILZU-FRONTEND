@@ -150,6 +150,11 @@ function Buddy({ props, ctx, store }: CompProps): React.ReactElement {
     }
     const loops = momentMode ? momentMode === "loop" : recipe.loop;
     if (started.current === key && (bot.mo === recipe || (bot.momentDone() && !loops))) return;
+    // The loop this life is already in is not started again. A `life` is one bot across screens and repaints, so when
+    // the page is drawn afresh - a new message in the talk, a tab back - he carries on from where he is, instead of
+    // playing the opening of a recipe he is already in the middle of. The cinema bot's set would otherwise be struck
+    // and wheeled in again every time somebody spoke.
+    if (bot.mo === recipe && loops) { started.current = key; return; }
     started.current = key;
     bot.playMoment(recipe, momentMode);
     if (reduced) { bot.settle(true); painter.current?.paint(bot); }
