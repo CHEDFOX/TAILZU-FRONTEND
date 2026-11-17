@@ -9,6 +9,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { usePullBot, PullBotScroll } from "../bots/PullBot";
 import type { CompProps } from "./props";
 import { pageScrolled, pageTouched } from "./pageBus";
+import { keepScrolled, scrolledTo } from "./scrollMemory";
 import { publishScroll, useScrollInto } from "../motion/scroll";
 import { ScreenScrollerContext } from "./v3Host";
 import { screenListPlan } from "./listCore";
@@ -170,7 +171,12 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   // Scroll offset as a `ui.*` value, when the screen asked for one (`scrollInto`): a motion can then drive off
   // it (sdui/motion/scroll.ts). Nothing is published for a screen that did not ask.
   const into = useScrollInto(props);
-  const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); if (into) publishScroll(into, y); };
+  // Where this page is, kept under the shell's key for it, so leaving and coming back lands here and not at the
+  // top. The shell draws only the top of the stack, so coming back is a fresh mount and nothing in here survives it.
+  const memKey = ctx?.screenKey;
+  const onScrollY = (y: number) => { scrolled.current = y; keepScrolled(memKey, y); pageScrolled(y); if (into) publishScroll(into, y); };
+  /** Landing back where it was left is done ONCE, on the first content there is to land on. */
+  const landed = useRef(false);
   /**
    * STARTS AT ITS END (KitExtras `startAtEnd`: a space's feed, newest at the bottom). It opens scrolled to the end; while the
    * person is within 80 px of the end, content that grows (a new message) or a view that gets shorter (the composer opening
@@ -184,6 +190,16 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
     const e = ends.current;
     const near = e.first || nearEnd();
     e.content = h;
+    // Back where it was left. A page that opens at its end (startAtEnd) has its own answer just below and is left
+    // alone; so is one never seen, whose remembered place is 0, which is the top and already where it is.
+    if (!atEnd && !landed.current && h > 0) {
+      landed.current = true;
+      const back = Math.min(scrolledTo(memKey), Math.max(0, h - e.view));
+      if (back > 0) {
+        scrolled.current = back;
+        requestAnimationFrame(() => scroll.current?.scrollTo({ y: back, animated: false }));
+      }
+    }
     if (!atEnd || !near || h <= 0) return;
     toEnd(!e.first);
     e.first = false;

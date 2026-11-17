@@ -22,12 +22,15 @@ import { refreshDeviceSignals } from "../../device/signals";
 /** Builds the per-screen Store + Ctx and renders the node tree. */
 export function ScreenHost({
   screen,
+  screenKey,
   nav,
   flags,
   labels,
   toast,
 }: {
   screen: ScreenResponse;
+  /** The shell's key for this mount (SduiApp `shownKey`): what a screen remembers itself by. */
+  screenKey?: string;
   nav: NavApi;
   flags: Record<string, any>;
   labels: Record<string, string>;
@@ -49,8 +52,8 @@ export function ScreenHost({
   // which on a tree with Skia canvases and video in it is the difference
   // between a frame and several.
   const ctx: Ctx = useMemo(
-    () => ({ store, actions: screen.actions ?? {}, flags, labels, nav, toast }),
-    [store, screen.actions, flags, labels, nav, toast],
+    () => ({ store, actions: screen.actions ?? {}, flags, labels, nav, toast, screenId: screen.screenId, screenKey }),
+    [store, screen.actions, flags, labels, nav, toast, screen.screenId, screenKey],
   );
   // `online`, `outbox` and `outboxWaiting` in the screen's state (offline.tsx).
   useOfflineState(store);

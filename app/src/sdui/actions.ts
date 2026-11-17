@@ -125,6 +125,12 @@ export interface Ctx {
   /** The screen being drawn, for the reports the device sends back. */
   screenId?: string;
   /**
+   * THE SHELL'S OWN IDENTITY FOR THIS SCREEN (`screenId:{params}`, SduiApp `shownKey`) — the same string it keys the
+   * mount by. A screen that wants to remember something across leaving and coming back keys it by this, because two
+   * bots share a screenId and are not the same page (components/scrollMemory.ts).
+   */
+  screenKey?: string;
+  /**
    * What the motion and gesture blocks were given to talk to the renderer with (blocks/hosts.ts). Typed loosely
    * here so this file does not have to import a block it only passes through.
    */
