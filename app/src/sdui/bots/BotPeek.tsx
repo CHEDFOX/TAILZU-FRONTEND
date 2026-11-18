@@ -21,17 +21,18 @@
  * stop moving rather than to vanish.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, View, useWindowDimensions, AccessibilityInfo } from "react-native";
+import { Animated, Easing, Pressable, View, useWindowDimensions, AccessibilityInfo } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import { BotBuddy } from "./BotBuddy";
+import { Blur } from "../components/blur";
 import { DUCK_MS, HOP_MS, RISE_MS, SIZE, hopTo, inRange, nextSpot, placeOf, pocketIn, widthOf, type PeekFrame, type PeekSpot } from "./peekCore";
 
 type Phase = "hidden" | "rising" | "up" | "hopping" | "ducking";
 
 export const BotPeek = (all: CompProps) => {
-  const { props, ctx } = all;
+  const { props, ctx, fire } = all;
   const p = (props ?? {}) as Record<string, any>;
   const spots: PeekSpot[] = Array.isArray(p.spots) ? p.spots : [];
   const size: number = typeof p.size === "number" && p.size > 0 ? p.size : SIZE;
@@ -45,6 +46,8 @@ export const BotPeek = (all: CompProps) => {
   }), [win.width, win.height, insets.top, insets.bottom, insets.left, insets.right]);
 
   const live = !!p.liveWhen && evalCondition(p.liveWhen, ctx);
+  /** CALLED, HE IS THE SCREEN: the page blurred behind him and the server's panel over it. Only while he is live. */
+  const veiled = live && !!p.veil;
   const done = !!p.doneWhen && evalCondition(p.doneWhen, ctx);
   const home = typeof p.home === "number" && p.home >= 0 && p.home < spots.length ? p.home : -1;
 
@@ -133,8 +136,15 @@ export const BotPeek = (all: CompProps) => {
   useEffect(() => { if (done && phase === "up") setPhase("hopping"); }, [done]);
 
   // Nothing is drawn until the host has been measured: a pocket in the wrong frame is a bot standing on the page.
+  // `box-none` while the veil is up: the layer itself takes nothing, its veil and panel do. "none" the rest of the
+  // time, so a bot peeking from an edge is never in the way of the page he is peeking at.
   const shell = (inner: React.ReactNode) => (
-    <View ref={host} onLayout={measure} pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}>
+    <View
+      ref={host}
+      onLayout={measure}
+      pointerEvents={veiled ? "box-none" : "none"}
+      style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+    >
       {inner}
     </View>
   );
@@ -146,7 +156,41 @@ export const BotPeek = (all: CompProps) => {
 
   // THE POCKET IS THE SAFETY. It sits inside the safe area and is only as deep as a peek, so nothing of him can be
   // drawn over the status bar or the tab bar whatever the phone's cutout is. He moves inside it, and that is all.
+  // THE VEIL AND THE PANEL. Home goes soft behind him under the same <Blur/> a thought's veil draws, and what the
+  // SERVER sent as children is drawn under wherever he is hanging — the words as he hears them, his thinking, the
+  // answer. He decides none of that: a line of text and a card are the same thing to him, which is the point.
+  const veil = veiled ? (
+    <>
+      <Animated.View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, opacity: rise }}>
+        <Pressable
+          onPress={() => fire("onDismiss")}
+          accessibilityRole="button"
+          accessibilityLabel="Stop listening"
+          style={{ flex: 1 }}
+        >
+          <Blur />
+        </Pressable>
+      </Animated.View>
+      <Animated.View
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          left: 16, right: 16,
+          top: pocket.y + pocket.height + 14,
+          opacity: rise,
+          transform: [{ translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }],
+        }}
+      >
+        <View style={{ borderRadius: 22, backgroundColor: "#fff", maxHeight: Math.max(120, frame.height * 0.62), overflow: "hidden" }}>
+          {all.children}
+        </View>
+      </Animated.View>
+    </>
+  ) : null;
+
   return shell(
+    <>
+    {veil}
     <View
       pointerEvents="none"
       accessibilityElementsHidden
@@ -193,6 +237,7 @@ export const BotPeek = (all: CompProps) => {
           }}
         />
       </Animated.View>
-    </View>,
+    </View>
+    </>,
   );
 };

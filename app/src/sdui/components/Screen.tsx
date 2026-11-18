@@ -9,7 +9,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { usePullBot, PullBotScroll } from "../bots/PullBot";
 import type { CompProps } from "./props";
 import { pageScrolled, pageTouched } from "./pageBus";
-import { keepScrolled, scrolledTo } from "./scrollMemory";
+import { keepScrolled, landing, scrolledTo } from "./scrollMemory";
 import { publishScroll, useScrollInto } from "../motion/scroll";
 import { ScreenScrollerContext } from "./v3Host";
 import { screenListPlan } from "./listCore";
@@ -176,7 +176,20 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   const memKey = ctx?.screenKey;
   const onScrollY = (y: number) => { scrolled.current = y; keepScrolled(memKey, y); pageScrolled(y); if (into) publishScroll(into, y); };
   /** Landing back where it was left is done ONCE, on the first content there is to land on. */
-  const landed = useRef(false);
+  /**
+   * WHAT THE PAGE STILL OWES: where it was left, until it is actually standing there.
+   *
+   * This was a one-shot latch on the first content-size event, and a page does not arrive at its full height in one
+   * pass — tiles measure, pictures land, Rise nodes settle. The first height is shorter than the last, so the offset
+   * was clamped to a fraction of where they were and, the latch being set, never corrected: the page landed PART of
+   * the way down, which reads as "it nearly remembered". Now it keeps asking as the page grows, and stops owing it
+   * only once the page is tall enough to hold it (scrollMemory.ts `landing`) — or after a moment, so a page that
+   * never gets there is not chased for ever.
+   */
+  const owed = useRef<number | null>(null);
+  const bornAt = useRef(0);
+  /** The viewport's own height. Measured on EVERY page: the clamp is the content less one screenful. */
+  const viewH = useRef(0);
   /**
    * STARTS AT ITS END (KitExtras `startAtEnd`: a space's feed, newest at the bottom). It opens scrolled to the end; while the
    * person is within 80 px of the end, content that grows (a new message) or a view that gets shorter (the composer opening
@@ -186,20 +199,33 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   const ends = useRef({ content: 0, view: 0, first: true });
   const nearEnd = () => scrolled.current + ends.current.view >= ends.current.content - K.num("ui.Screen.endSlop", 80);
   const toEnd = (animated: boolean) => requestAnimationFrame(() => scroll.current?.scrollToEnd({ animated }));
+  /**
+   * Back where it was left. A page that opens at its end (startAtEnd) has its own answer just below and is left
+   * alone; so is one never seen, whose remembered place is 0 — the top, and already where it is.
+   */
+  const land = (h: number) => {
+    if (atEnd || h <= 0) return;
+    if (owed.current === null) {
+      const saved = scrolledTo(memKey);
+      if (saved <= 0) return;                 // never seen, or left at the top
+      owed.current = saved;
+      bornAt.current = Date.now();
+    }
+    const { y, settled } = landing(owed.current, h, viewH.current);
+    if (y > 0 && y !== scrolled.current) {
+      scrolled.current = y;
+      requestAnimationFrame(() => scroll.current?.scrollTo({ y, animated: false }));
+    }
+    // Stop owing it once the page can hold it, or once a moment has passed: a page that never grows that tall (its
+    // content changed since) must not be chased for the life of the screen.
+    if (settled || Date.now() - bornAt.current > 1500) owed.current = null;
+  };
+
   const onContentSize = (_w: number, h: number) => {
     const e = ends.current;
     const near = e.first || nearEnd();
     e.content = h;
-    // Back where it was left. A page that opens at its end (startAtEnd) has its own answer just below and is left
-    // alone; so is one never seen, whose remembered place is 0, which is the top and already where it is.
-    if (!atEnd && !landed.current && h > 0) {
-      landed.current = true;
-      const back = Math.min(scrolledTo(memKey), Math.max(0, h - e.view));
-      if (back > 0) {
-        scrolled.current = back;
-        requestAnimationFrame(() => scroll.current?.scrollTo({ y: back, animated: false }));
-      }
-    }
+    land(h);
     if (!atEnd || !near || h <= 0) return;
     toEnd(!e.first);
     e.first = false;
@@ -207,7 +233,12 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   const scrollProps = {
     automaticallyAdjustKeyboardInsets: true,
     // For the nodes that follow the page (pageBus.ts): where it is scrolled, where a finger is.
-    onTouchStart: (e: GestureResponderEvent) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY),
+    onTouchStart: (e: GestureResponderEvent) => {
+      // THEIR FINGER WINS. Once they have taken hold of the page, it no longer owes anyone an offset: landing at the
+      // top is a small disappointment, and a page that scrolls itself out from under a moving thumb is not.
+      owed.current = null;
+      pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY);
+    },
     onTouchMove: (e: GestureResponderEvent) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY),
     onTouchEnd: () => pageTouched(NaN, NaN),
     scrollEventThrottle: 16,
@@ -217,6 +248,11 @@ export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
         const near = nearEnd();
         ends.current.view = h;
         if (near && !ends.current.first) toEnd(false);
+      }
+      if (h > 0 && h !== viewH.current) {
+        viewH.current = h;
+        // The viewport can be measured AFTER the content, and the clamp is wrong without it, so try again on it too.
+        if (ends.current.content > 0) land(ends.current.content);
       }
       if (h > 0 && h !== vh) setVh(h);
     },

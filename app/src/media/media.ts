@@ -168,8 +168,15 @@ export async function uploadFile(a: UploadSpec, io: MediaIO): Promise<void> {
     let answer: Record<string, unknown>;
     try { answer = JSON.parse(res.body) as Record<string, unknown>; } catch { throw new Error(`upload: not JSON: ${String(res.body).slice(0, 80)}`); }
     // The answer as the server gave it, with the name it was picked with and its size in words, for the screen.
+    //
+    // `pic` is the file STILL ON THIS PHONE, as an image source a screen can draw ({ url }, which is what
+    // resolveMedia takes). Nothing serves an uploaded file's bytes back — /v1/files answers with the file's facts and
+    // no address — so a screen that wants to SHOW what was just attached has only the local copy, and only while the
+    // screen lives. A server screen reaches it by binding an Image's `source` to where this landed (the insert card
+    // on the ask bar does: experience/bots/ask.ts). For anything that is not a picture it is still the local path,
+    // and an Image simply draws nothing for it.
     const bytes = Number((answer.file as { bytes?: unknown } | undefined)?.bytes) || p.size;
-    io.set(a.assignTo, { ...answer, name: p.name, size: progressOf(p.name, p.kind, 0, bytes).size });
+    io.set(a.assignTo, { ...answer, name: p.name, size: progressOf(p.name, p.kind, 0, bytes).size, pic: { url: p.uri }, picked: p.kind });
     await io.run(a.onSuccess);
   } catch (e) {
     if (mine.stopped) return;
