@@ -17,11 +17,18 @@
  * LOOKS AND MOMENTS (BotMoments): `avatar` is the bot's look (an id or a spec; none: his kind's), `moment` a recipe he
  * plays once the card is open (`momentMode` "once" or "loop").
  *
+ * A WAY OUT (`on.onDismiss`, overlay only). An overlay card is a real modal: it covers the page's own back, and a modal sits over
+ * the navigator, so the screen's edge swipe never reaches it — on either phone. A card that a person may leave says so by carrying
+ * onDismiss, and then it takes every way a person asks to go back: a Back in its own corner, a swipe to the right ANYWHERE over the
+ * card or the blur behind it (where the hand starts on an iPhone), and Android's own back button. The swipe is claimed only by a
+ * right-going drag that is not a scroll, and a child that wants the gesture still wins it. Without onDismiss the card behaves as it
+ * always did — the permission cards are answered where they stand.
+ *
  *   { type: "BotCard", props: { color, stageHeight, overlay, width, readyWhen, doneWhen, closeWhen, once, avatar?, moment?,
- *     momentMode? }, on: { onComplete }, children: [step, step, step] }
+ *     momentMode? }, on: { onComplete, onDismiss? }, children: [step, step, step] }
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Dimensions, KeyboardAvoidingView, Modal, Platform, View } from "react-native";
+import { Animated, Dimensions, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
@@ -30,8 +37,9 @@ import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
 import { noteScenes, useLooks } from "../../botTiles/looks";
 import { voiceLevel } from "../voice/voiceBus";
+import Svg, { Path } from "react-native-svg";
 import { Blur } from "../components/blur";
-const LINE = "#e6e6e6", PAPER = "#ffffff";
+const LINE = "#e6e6e6", PAPER = "#ffffff", INK = "#0a0a0a";
 const ONCE_KEY = "tz.botcard.once.";
 
 /** Cards closed on this device ("once"), and the bots of the cards, for the life of the app. */
@@ -76,6 +84,17 @@ function Card({ node, props, ctx, store, children, fire, bots }: CompProps & { b
   const [phase, setPhase] = useState<Phase>("wait");
   const completed = useRef(false);
   const complete = () => { if (!completed.current) { completed.current = true; fire("onComplete"); } };
+  // The way out, when the server gave one: asked for once, however it was asked for.
+  const canLeave = !!node.on?.onDismiss && overlay;
+  const left = useRef(false);
+  const leave = () => { if (!left.current) { left.current = true; fire("onDismiss"); } };
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
+  // A swipe to the right across the card, which is what a person does when the screen's own edge swipe is not there.
+  const swipe = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_e, g) => g.dx > 18 && Math.abs(g.dy) < 30 && g.vx > 0,
+    onPanResponderRelease: (_e, g) => { if (g.dx > 56 && Math.abs(g.dy) < 60) leaveRef.current(); },
+  }), []);
   const remember = () => {
     if (!once || CLOSED.has(once)) return;
     CLOSED.add(once);
@@ -205,6 +224,19 @@ function Card({ node, props, ctx, store, children, fire, bots }: CompProps & { b
       <View style={{ height: stageH }} pointerEvents="none">
         {bots && cardW > 0 && <TileSurface ref={(r) => { painter.current = r; }} w={cardW - 2} h={stageH} />}
       </View>
+      {canLeave && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={leave}
+          style={{ position: "absolute", left: 8, top: 8, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+          hitSlop={6}
+        >
+          <Svg width={22} height={22} viewBox="0 0 24 24">
+            <Path d="M15 5l-7 7 7 7" fill="none" stroke={INK} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </Pressable>
+      )}
       <Animated.View style={{ opacity: words, transform: [{ translateY: words.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }}>
         {children}
       </Animated.View>
@@ -213,8 +245,8 @@ function Card({ node, props, ctx, store, children, fire, bots }: CompProps & { b
 
   if (!overlay) return card;
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={() => { /* answered on the card */ }}>
-      <View style={{ flex: 1 }}>
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={() => { if (canLeave) leave(); }}>
+      <View style={{ flex: 1 }} {...(canLeave ? swipe.panHandlers : {})}>
         <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, opacity: veil }}>
           <Blur />
         </Animated.View>
