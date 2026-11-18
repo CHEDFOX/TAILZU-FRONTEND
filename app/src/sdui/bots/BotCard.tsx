@@ -19,16 +19,18 @@
  *
  * A WAY OUT (`on.onDismiss`, overlay only). An overlay card is a real modal: it covers the page's own back, and a modal sits over
  * the navigator, so the screen's edge swipe never reaches it — on either phone. A card that a person may leave says so by carrying
- * onDismiss, and then it takes every way a person asks to go back: a Back in its own corner, a swipe to the right ANYWHERE over the
- * card or the blur behind it (where the hand starts on an iPhone), and Android's own back button. The swipe is claimed only by a
- * right-going drag that is not a scroll, and a child that wants the gesture still wins it. Without onDismiss the card behaves as it
- * always did — the permission cards are answered where they stand.
+ * onDismiss, and then it answers the two ways a person asks to go back that MARKUP CANNOT DRAW: a swipe to the right anywhere over
+ * the card or the blur behind it (where the hand starts on an iPhone), and Android's own back button. The swipe is claimed only by a
+ * right-going drag that is not a scroll, and a child that wants the gesture still wins it.
+ *
+ * The visible Back is the server's, drawn as a step of the card like everything else in it, so a card gets one the day the server
+ * sends it rather than the day a build ships. Nothing is drawn here. Without onDismiss the card behaves as it always did.
  *
  *   { type: "BotCard", props: { color, stageHeight, overlay, width, readyWhen, doneWhen, closeWhen, once, avatar?, moment?,
  *     momentMode? }, on: { onComplete, onDismiss? }, children: [step, step, step] }
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Dimensions, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, View } from "react-native";
+import { Animated, Dimensions, KeyboardAvoidingView, Modal, PanResponder, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
@@ -37,9 +39,8 @@ import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
 import { noteScenes, useLooks } from "../../botTiles/looks";
 import { voiceLevel } from "../voice/voiceBus";
-import Svg, { Path } from "react-native-svg";
 import { Blur } from "../components/blur";
-const LINE = "#e6e6e6", PAPER = "#ffffff", INK = "#0a0a0a";
+const LINE = "#e6e6e6", PAPER = "#ffffff";
 const ONCE_KEY = "tz.botcard.once.";
 
 /** Cards closed on this device ("once"), and the bots of the cards, for the life of the app. */
@@ -224,19 +225,6 @@ function Card({ node, props, ctx, store, children, fire, bots }: CompProps & { b
       <View style={{ height: stageH }} pointerEvents="none">
         {bots && cardW > 0 && <TileSurface ref={(r) => { painter.current = r; }} w={cardW - 2} h={stageH} />}
       </View>
-      {canLeave && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={leave}
-          style={{ position: "absolute", left: 8, top: 8, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
-          hitSlop={6}
-        >
-          <Svg width={22} height={22} viewBox="0 0 24 24">
-            <Path d="M15 5l-7 7 7 7" fill="none" stroke={INK} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
-        </Pressable>
-      )}
       <Animated.View style={{ opacity: words, transform: [{ translateY: words.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }}>
         {children}
       </Animated.View>
