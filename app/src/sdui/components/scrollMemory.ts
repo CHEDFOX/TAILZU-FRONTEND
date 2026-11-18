@@ -38,3 +38,23 @@ export function scrolledTo(key: string | undefined): number {
 export function forgetScrolled(): void {
   left.clear();
 }
+
+/**
+ * WHERE TO LAND, AND WHETHER THE PAGE CAN HOLD IT YET.
+ *
+ * A page does not arrive at its full height in one pass: tiles measure, pictures land, `Rise` nodes settle, a live
+ * view fills in. The first content height is almost always SHORTER than the last, and a page restored against that
+ * first one lands part of the way down — which reads as "it nearly remembered", the worst of both answers.
+ *
+ * So the restore is not a single shot. `y` is the best that can be reached right now, and `settled` says whether the
+ * page is finally tall enough to hold where it was; until it is, the caller tries again on the next growth.
+ *
+ * `view` is the viewport's own height, and it matters: the furthest a page can scroll is its content LESS one
+ * screenful. Computed against a view of 0 (which is what an unmeasured viewport gives) every page looks scrollable to
+ * its very last pixel, and the clamp lets through an offset that snaps back.
+ */
+export function landing(saved: number, content: number, view: number): { y: number; settled: boolean } {
+  const want = saved > 0 ? saved : 0;
+  const max = Math.max(0, content - Math.max(0, view));
+  return { y: Math.max(0, Math.min(want, max)), settled: max >= want };
+}
