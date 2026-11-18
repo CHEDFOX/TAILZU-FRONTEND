@@ -125,6 +125,12 @@ export interface Ctx {
   /** The screen being drawn, for the reports the device sends back. */
   screenId?: string;
   /**
+   * THE SHELL'S OWN IDENTITY FOR THIS SCREEN (`screenId:{params}`, SduiApp `shownKey`) — the same string it keys the
+   * mount by. A screen that wants to remember something across leaving and coming back keys it by this, because two
+   * bots share a screenId and are not the same page (components/scrollMemory.ts).
+   */
+  screenKey?: string;
+  /**
    * What the motion and gesture blocks were given to talk to the renderer with (blocks/hosts.ts). Typed loosely
    * here so this file does not have to import a block it only passes through.
    */
@@ -943,7 +949,7 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
         let unsupported = false;
         // ONE APP CARD BEFORE THE SYSTEM PROMPT (SPEC 3.4 point 4). `primed: true` means the server's own card's
         // Continue button fired this, so the card has already been shown; without it, ours is.
-        if ((action as { primed?: unknown }).primed !== true) {
+        if (action.primed !== true) {
           const went = await primedCard(String(action.permission));
           if (!went) break;
         }

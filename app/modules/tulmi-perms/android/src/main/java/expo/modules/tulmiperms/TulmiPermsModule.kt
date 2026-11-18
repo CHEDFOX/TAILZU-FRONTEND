@@ -75,9 +75,10 @@ import java.util.Locale
  *                       what the build can do. The three 8.9.1 switches below read the same way.
  *
  * AND THE THREE BEHIND THEIR OWN BUILD SWITCH (perms2/SPEC.md 2, 5, 7;
- * perms2/ANDROID-WIRING.md). Each is OFF in every shipping profile, and off means the
- * permission is removed from the merged manifest, the code is not compiled in, and abilities()
- * says false — so the server draws no row at all:
+ * perms2/ANDROID-WIRING.md). All three are ON in the shipping profiles from 8.9.1; off, which is
+ * what the `development` profile and any older binary have, means the permission is removed from
+ * the merged manifest, the code is not compiled in, and abilities() says false — so the server
+ * draws no row at all:
  *
  * calendarStatus()      TULMI_ANDROID_CALENDAR, READ_CALENDAR, READ ONLY. Busy times for 14 days
  * calendarAsk()         and nothing else (TulmiCalendarRead.kt). Neither of the first two asks:
@@ -454,9 +455,9 @@ class TulmiPermsModule : Module() {
    *
    * Three of them are in this build when their own switch is on (`TULMI_ANDROID_CALENDAR`,
    * `_MOTION`, `_ARRIVAL`) — busy times, steps and the "in a car?" check, and geofenced arrival
-   * reminders. Every shipping profile has all three off, so `abilities()` on a release build
-   * answers exactly what it answered before. Reminders has no Android store to sync with, and App
-   * Attest and DeviceCheck are Apple's.
+   * reminders. From 8.9.1 the shipping profiles have all three on, so `abilities()` on a release
+   * build answers true to each one wherever the phone can really do it. Reminders has no Android
+   * store to sync with, and App Attest and DeviceCheck are Apple's.
    */
   private fun abilities(): Map<String, Boolean> = mapOf(
     // The calendar app's own screen. Tried at use, and "unavailable" if no app answers.
@@ -472,8 +473,9 @@ class TulmiPermsModule : Module() {
     // Only while the build switch put READ_SLEEP in the manifest.
     "healthSleep" to requests(SLEEP_PERMISSION),
     // Precise + "Allow all the time" in the manifest AND geofencing compiled in. Both are behind
-    // TULMI_ANDROID_ARRIVAL, which is off in every shipping profile until Play has approved the
-    // background-location declaration (backend docs/owner-8.9.1.md).
+    // TULMI_ANDROID_ARRIVAL, which is on in the shipping profiles from 8.9.1 and needs Play's
+    // approved background-location declaration before the release goes up (backend
+    // docs/owner-8.9.1.md).
     "arrival" to (
       requests(Manifest.permission.ACCESS_BACKGROUND_LOCATION) &&
         TulmiArrivalGeofences.supported()

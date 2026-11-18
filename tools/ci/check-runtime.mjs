@@ -90,25 +90,19 @@ const androidCalendar = () => androidSwitch("TULMI_ANDROID_CALENDAR");
 const androidMotion = () => androidSwitch("TULMI_ANDROID_MOTION");
 const androidArrival = () => androidSwitch("TULMI_ANDROID_ARRIVAL");
 
-/**
- * Profiles that ship arrival reminders. REFUSED outside the proof profiles until
- * Play has approved the background-location declaration: a release carrying
- * ACCESS_BACKGROUND_LOCATION without it is refused by Play, and the whole point
- * of giving arrival its own switch is that it can never hold the release up. When
- * the declaration is approved, delete this and its call.
- *
- * `n0` IS ALLOWED, and has to be: it is the on-device proof build, it is never
- * submitted, and the demo video Play's declaration requires can only be recorded
- * on a build that has the feature (backend docs/owner-8.9.1.md 1.2). Add
- * an internal-distribution profile here if one is made for that.
- */
-const ARRIVAL_PROOF_PROFILES = new Set(["n0"]);
-
-function arrivalOutsideN0(cur) {
-  return Object.entries(cur.androidArrival ?? {})
-    .filter(([profile, value]) => value === "on" && !ARRIVAL_PROOF_PROFILES.has(profile))
-    .map(([profile]) => profile);
-}
+// ARRIVAL IS NO LONGER REFUSED OUTSIDE n0 (8.9.1, Android halves on). This file
+// used to refuse TULMI_ANDROID_ARRIVAL in any profile but the proof build, while
+// the three Android halves shipped off. They now ship ON in `preview` and
+// `production`, so the refusal is gone and every profile may carry arrival.
+//
+// WHAT HAS NOT CHANGED, AND IS NOW THE OWNER'S STEP: a release carrying
+// ACCESS_BACKGROUND_LOCATION is refused by Play unless the background-location
+// declaration has been APPROVED, with the demo video, in Play Console. The words
+// of that declaration are in backend docs/owner-8.9.1.md 6.1, and its video's
+// script is 6.2 — that is the owner checklist for both. Nothing in
+// this repository can see whether Play has answered, so no check here can stand
+// in for it: do not upload the Android release until it has. `n0` is still the
+// proof profile the video is recorded on.
 
 /** Profiles that ask for sleep without health. Refused: see androidHealthSleep. */
 function sleepWithoutHealth(cur) {
@@ -219,25 +213,9 @@ function refuseSleepWithoutHealth(cur) {
   process.exit(1);
 }
 
-/** Refused in --write as well as in a check, so the lock can never record it. */
-function refuseArrivalOutsideN0(cur) {
-  const wrong = arrivalOutsideN0(cur);
-  if (!wrong.length) return;
-  for (const profile of wrong) {
-    console.log(
-      `::error::app/eas.json's "${profile}" profile sets TULMI_ANDROID_ARRIVAL on. Arrival reminders ` +
-        "need ACCESS_BACKGROUND_LOCATION, which Play refuses in a release without its approved " +
-        "background-location declaration (backend docs/owner-8.9.1.md). Only the proof profiles " +
-        `(${[...ARRIVAL_PROOF_PROFILES].join(", ")}) may carry it until that is answered.`
-    );
-  }
-  process.exit(1);
-}
-
 if (process.argv.includes("--write")) {
   const cur = compute(prev);
   refuseSleepWithoutHealth(cur);
-  refuseArrivalOutsideN0(cur);
   writeFileSync(lockPath, JSON.stringify(cur, null, 2) + "\n");
   console.log(`Wrote ${lockPath} (runtime ${cur.runtime}, ${Object.keys(cur.packages).length} native packages).`);
   process.exit(0);
@@ -249,7 +227,6 @@ if (!prev) {
 }
 const cur = compute(prev);
 refuseSleepWithoutHealth(cur);
-refuseArrivalOutsideN0(cur);
 const bad = []; // existing native code changed: needs a runtime bump
 const add = []; // additions or source-only change: lock refresh only
 if (cur.expoSdk !== prev.expoSdk) bad.push(`Expo SDK changed ${prev.expoSdk} -> ${cur.expoSdk}.`);

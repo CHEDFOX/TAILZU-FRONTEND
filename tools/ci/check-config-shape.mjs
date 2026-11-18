@@ -14,7 +14,7 @@
 // string, entitlement or Android permission without the screen that uses it in
 // the same build.
 //
-// SIX SWITCH COMBINATIONS from 8.9.1, not two. Android health and Android sleep
+// SEVEN SWITCH COMBINATIONS from 8.9.1, not two. Android health and Android sleep
 // have a switch each (perms2/SPEC.md 10.1), because steps and exercise and sleep
 // are separate lines on Play's Health Connect form with separate answers. Sleep
 // only means anything with health on, so the health shapes that can ship are:
@@ -25,17 +25,19 @@
 // Then the three ANDROID PERMISSION SWITCHES of 8.9.1 — calendar, motion and
 // arrival (perms2/ANDROID-WIRING.md) — each independent, because what
 // holds an Android permission up is Play and Play answers each declaration on its
-// own clock. Three more runs cover them: two that exercise them in pairs, so a
+// own clock. Four more runs cover them: two that exercise them in pairs, so a
 // permission that leaks across switches is not hidden by a run where everything
-// is on, and THE n0 SHAPE ITSELF — all five switches on, which is the one build
-// that really carries every new permission at once (app/eas.json's n0 profile).
-// Without that run a cross-switch interaction in the only build that has them all
-// would pass CI.
+// is on; THE SHIPPING SHAPE — those three on with health and sleep off, which is
+// what app/eas.json's `preview` and `production` profiles build from 8.9.1, so the
+// release candidate's own merged manifest is read here and not inferred; and THE
+// n0 SHAPE — all five switches on, the one build that carries every new permission
+// at once. Without the last two a cross-switch interaction in the builds that
+// really have them would pass CI.
 //
-// COST: six `expo config --type introspect` runs instead of three, a few seconds
-// each. The three Android runs may be dropped from a pre-commit path and kept in
+// COST: seven `expo config --type introspect` runs instead of three, a few seconds
+// each. The four Android runs may be dropped from a pre-commit path and kept in
 // CI — but not dropped altogether: they are the only thing that proves a release
-// candidate's merged manifest asks for nothing new.
+// candidate's merged manifest asks for nothing it has no screen for.
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -201,20 +203,22 @@ const bad = [];
 // Health off; health on and sleep off; both on. Sleep on with health off is
 // check-health-switch.mjs's and check-runtime.mjs's job.
 //
-// Then the three 8.9.1 Android shapes. Two exercise the switches in pairs —
-// calendar with motion, and arrival on its own, which is what the build after
-// Play's approval looks like — so a permission that leaks from one switch to
-// another is caught rather than hidden by a run where everything is on. The third
-// is THE n0 SHAPE: health, sleep, calendar, motion and arrival all on, exactly
-// what app/eas.json's n0 profile builds, and the only build that carries every
-// new permission of 8.9.1 at once (check-runtime.mjs refuses arrival anywhere
-// else).
+// Then the four 8.9.1 Android shapes. Two exercise the switches in pairs —
+// calendar with motion, and arrival on its own — so a permission that leaks from
+// one switch to another is caught rather than hidden by a run where everything is
+// on. The third is THE SHIPPING SHAPE: calendar, motion and arrival on with health
+// and sleep off, which is what app/eas.json's `preview` and `production` profiles
+// build from 8.9.1, so the release candidate's merged manifest is read here. The
+// fourth is THE n0 SHAPE: all five on, exactly what the n0 profile builds, and the
+// only build that carries every new permission of 8.9.1 at once.
 const RUNS = [
   { health: false, sleep: false },
   { health: true, sleep: false },
   { health: true, sleep: true },
   { health: false, sleep: false, calendar: true, motion: true },
   { health: false, sleep: false, arrival: true },
+  // the shipping shape (preview and production)
+  { health: false, sleep: false, calendar: true, motion: true, arrival: true },
   // the n0 shape
   { health: true, sleep: true, calendar: true, motion: true, arrival: true },
 ];
@@ -388,4 +392,4 @@ if (bad.length) {
   console.log(`::error::app/app.config.ts and its plugins resolve to the wrong shape (${bad.length} problems).`);
   process.exit(1);
 }
-console.log("All six switch combinations resolve to the shape perms/SPEC.md 6.3, perms2/SPEC.md 10.1 and perms2/ANDROID-WIRING.md describe, and Meta stays off the iPhone.");
+console.log("All seven switch combinations resolve to the shape perms/SPEC.md 6.3, perms2/SPEC.md 10.1 and perms2/ANDROID-WIRING.md describe, and Meta stays off the iPhone.");

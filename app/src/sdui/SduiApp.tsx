@@ -470,7 +470,7 @@ export default function SduiApp() {
             {present(
               <ScreenHost
                 key={shownKey}
-                screen={shown} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />,
+                screen={shown} screenKey={shownKey} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />,
               shownPresent,
               nav.back,
             )}

@@ -1,6 +1,6 @@
 /**
  * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, his hands come back and grab
- * its middle, from above and below, it is pulled in to them as they twist, and the app is there (launchCore.ts says how it fits together, and has every number).
+ * its middle, from above and below, it is pulled in to them, and the app is there (launchCore.ts says how it fits together, and has every number).
  *
  * LaunchCurtain sits over the whole app from its first render. It draws the native splash's own frame (the same art,
  * size, place and ground), and once that is on screen it lifts the native splash from under it, so the join is one
@@ -9,8 +9,9 @@
  * screen), whichever comes later. Reduce Motion: the still, then the fade.
  *
  * The layers, back to front: his head (behind the bar, shown only below its top edge), the bar (whole, then in strips
- * for the pull-in), his gloves (in front, each its own half: gripping, slipping behind the bar after him, grabbing its
- * middle again, from above and below, and twisting as the bar is pulled in to them).
+ * for the pull-in), his gloves (in front, each its own half: slipping behind the bar after him, then grabbing its middle
+ * again, from above and below, as the bar is pulled in to them). Each glove can still be squeezed, turned over, twisted
+ * and shrunk (grip, flip, turn, size); the launch the server sends today only slides them (launchCore.ts, the beats).
  *
  * WHAT EACH LAYER DOES IS THE SERVER'S (launchMotion.ts): the motion is data the server sends, so a new launch
  * reaches every phone without an app update. It always starts on the splash's own frame, and it never holds the app
@@ -50,6 +51,15 @@ const ART_TO_LOAD = 8;
 const Z = SPLASH_PT;
 /** The head's clip reaches past the art on both sides: his sway may take an ear over its edge. */
 const WIDE = 60;
+
+/**
+ * A pivot, in points from a layer's top left. ALWAYS numbers, never a string: React Native reads a transformOrigin string
+ * with a parser that takes no decimals ("39.75px 5.49px" comes out as 75px and 49px, "9.27%" as 27%), so on a phone every
+ * part that turned or squeezed about such a point was flung far off screen — his feelers as soon as he moved, his gloves
+ * as soon as they gripped, and the gloves that come back to the bar were never seen at all. An array of numbers is passed
+ * through as it is, on the phone and on the web. launchCore.test.ts refuses a string here.
+ */
+const pivot = (x: number, y: number): [number, number, number] => [x, y, 0];
 
 /**
  * Every key the curtain draws with, sampled once from the launch that is playing (launchMotion.ts): the server's
@@ -149,7 +159,7 @@ function Curtain() {
       <View style={styles.art}>
         {/* His head, behind the bar: only what is below the bar's top edge shows, and the edge rides the bar. */}
         <Animated.View style={[styles.below, { left: -WIDE, width: Z + 2 * WIDE, transform: [{ translateY: bar }] }]}>
-          <Animated.View style={[styles.piece, { left: WIDE, opacity: at(K.head.shown), transformOrigin: "50% 0%",
+          <Animated.View style={[styles.piece, { left: WIDE, opacity: at(K.head.shown), transformOrigin: pivot(Z / 2, 0),
             transform: [{ rotate: at(K.head.sway) }, { scaleY: at(K.head.sq) }, { translateY: at(K.head.dy) }] }]}>
             {/* His feelers, behind his head: he hangs upside down, so they hang from the top of his head, at the bottom.
                 Each is two pieces drawn at rest, each turned about its pivot (the root; the cut) by the physics. */}
@@ -157,9 +167,9 @@ function Curtain() {
               {(["L", "R"] as const).map((s) => {
                 const [rx, ry] = FEELER_ART.roots[s], [jx, jy] = FEELER_ART.joints[s];
                 return (
-                  <Animated.View key={s} style={[styles.piece, { transformOrigin: `${rx * U}px ${ry * U - BAR_TOP}px`, transform: [{ rotate: at(K.feelers[s][0]) }] }]}>
+                  <Animated.View key={s} style={[styles.piece, { transformOrigin: pivot(rx * U, ry * U - BAR_TOP), transform: [{ rotate: at(K.feelers[s][0]) }] }]}>
                     <Image source={s === "L" ? ART.feelerL1 : ART.feelerR1} style={styles.lifted} onLoad={loaded} />
-                    <Animated.View style={[styles.piece, { transformOrigin: `${jx * U}px ${jy * U - BAR_TOP}px`, transform: [{ rotate: at(K.feelers[s][1]) }] }]}>
+                    <Animated.View style={[styles.piece, { transformOrigin: pivot(jx * U, jy * U - BAR_TOP), transform: [{ rotate: at(K.feelers[s][1]) }] }]}>
                       <Image source={s === "L" ? ART.feelerL2 : ART.feelerR2} style={styles.lifted} onLoad={loaded} />
                     </Animated.View>
                   </Animated.View>
@@ -183,20 +193,20 @@ function Curtain() {
             );
           })}
         </Animated.View>
-        {/* His gloves, in front: each its own half, squeezed toward the bar as they grip. Going, the edge each is
-            clipped at moves down the bar's face as the glove goes up into its lower edge. Coming back, to the bar's
-            middle: the left in from above, turned over to grip its top; the right in from below. Then they twist
-            against each other as the bar is pulled in to them, and close on the middle. */}
+        {/* His gloves, in front: each its own half. Going, the edge each is clipped at moves down the bar's face as the
+            glove goes up into its lower edge. Coming back, to the bar's middle: the left in from above, the right in
+            from below, sat on its face; then they close on the middle as the bar is pulled in to them. The layers
+            below also squeeze (grip), turn over (flip), twist (turn) and shrink (size) when a launch asks. */}
         {K.gloves.map((g, side) => {
           const edge = at(g.edge);
           const barMid = BAR_MID - BAR_TOP;
           return (
             <Animated.View key={side} style={[styles.below, { left: side * Z / 2, width: Z / 2, opacity: at(g.shown), transform: [{ translateY: bar }, { translateY: edge }] }]}>
               <Animated.View style={[styles.piece, { transform: [{ translateY: Animated.multiply(edge, -1) }] }]}>
-                <Animated.View style={[styles.piece, { transformOrigin: `${GLOVES[side].cx - side * Z / 2}px ${barMid}px`,
+                <Animated.View style={[styles.piece, { transformOrigin: pivot(GLOVES[side].cx - side * Z / 2, barMid),
                   transform: [{ translateX: at(g.gx) }, { translateY: at(g.lift) }, { rotate: at(g.turn) }, { scale: at(g.size) }] }]}>
-                  <Animated.View style={[styles.piece, { transformOrigin: `50% ${barMid}px`, transform: [{ scaleY: at(g.flip) }] }]}>
-                    <Animated.View style={[styles.piece, { transformOrigin: `50% ${GRIP_AT * 100}%`, transform: [{ scaleY: t.interpolate({ ...g.grip, outputRange: g.grip.outputRange.map((v) => 1 - v), extrapolate: "clamp" }) }] }]}>
+                  <Animated.View style={[styles.piece, { transformOrigin: pivot(Z / 2, barMid), transform: [{ scaleY: at(g.flip) }] }]}>
+                    <Animated.View style={[styles.piece, { transformOrigin: pivot(Z / 2, GRIP_AT * Z), transform: [{ scaleY: t.interpolate({ ...g.grip, outputRange: g.grip.outputRange.map((v) => 1 - v), extrapolate: "clamp" }) }] }]}>
                       <Animated.Image source={ART.hands} style={[styles.lifted, { left: -side * Z / 2, transform: [{ translateY: at(g.dy) }] }]} onLoad={side ? undefined : loaded} />
                     </Animated.View>
                   </Animated.View>

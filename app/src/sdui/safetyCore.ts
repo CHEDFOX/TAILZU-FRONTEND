@@ -24,7 +24,10 @@ export const VOCAB1_TYPES: readonly string[] = [
   "VoiceButton", "VoiceToggle",
   "SwipePill", "AppleSignIn", "GoogleSignIn", "CodeEntry", "AuthPhase", "OnboardStage", "BlipSpot",
   "Rise", "MorphOut",
-  "BotTiles", "BotCard", "BotBuddy", "BlipWalkOut",
+  // BotPeek is listed because it is a plain vocabulary-1 component this build draws. Whether a RESCUE screen ever
+  // carries a peek is the server's to decide and not safe mode's: safe mode gates TYPES, and the server only ever
+  // puts a peek on Home.
+  "BotTiles", "BotCard", "BotBuddy", "BotPeek", "BlipWalkOut",
   "WriteOn", "LiveMark", "HeadBar",
   "LiveView",
   "BotStage", "BotCrowd", "Vanish", "MentionField", "LiveWords",

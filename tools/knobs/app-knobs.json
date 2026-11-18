@@ -304,6 +304,9 @@
     "desktop.oneKey.label.rightSuper": "Right Super",
     "desktop.overlay.label": "Live",
     "desktop.overlay.listening": "listening…",
+    "desktop.perm.blocked": "Your computer is holding this one. Open its settings, turn X0 Bot on, and come back.",
+    "desktop.perm.done": "That’s it. Carry on.",
+    "desktop.perm.later": "Not now",
     "desktop.pill.botsWriting": "Writing",
     "desktop.pill.done": "{n} words",
     "desktop.pill.doneNone": "Done",
@@ -1407,6 +1410,9 @@
     "desktop.page.treeChars": 40000,
     "desktop.paste.delayMs": 120,
     "desktop.pauseFlush.default": true,
+    "desktop.perm.doneMs": 900,
+    "desktop.perm.outMs": 220,
+    "desktop.perm.watchMs": 1000,
     "desktop.personBot.everyS": [
       16,
       36

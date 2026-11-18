@@ -18,20 +18,20 @@
   "androidCalendar": {
     "development": "off",
     "n0": "on",
-    "preview": "off",
-    "production": "off"
+    "preview": "on",
+    "production": "on"
   },
   "androidMotion": {
     "development": "off",
     "n0": "on",
-    "preview": "off",
-    "production": "off"
+    "preview": "on",
+    "production": "on"
   },
   "androidArrival": {
     "development": "off",
     "n0": "on",
-    "preview": "off",
-    "production": "off"
+    "preview": "on",
+    "production": "on"
   },
   "throughNatives": [
     "@kingstinct/react-native-healthkit",
@@ -199,5 +199,5 @@
       "stop"
     ]
   },
-  "sourcesSha256": "cc7ad6f6eed9695816e5ec7509c6e5b68e7d0a92d69e519a7092dfe652c06b54"
+  "sourcesSha256": "bd3364adef3dfd481568e3474b755427b5ac10506eec4b2bec9de420c0255d48"
 }

@@ -150,6 +150,11 @@ function Buddy({ props, ctx, store }: CompProps): React.ReactElement {
     }
     const loops = momentMode ? momentMode === "loop" : recipe.loop;
     if (started.current === key && (bot.mo === recipe || (bot.momentDone() && !loops))) return;
+    // The loop this life is already in is not started again. A `life` is one bot across screens and repaints, so when
+    // the page is drawn afresh - a new message in the talk, a tab back - he carries on from where he is, instead of
+    // playing the opening of a recipe he is already in the middle of. The cinema bot's set would otherwise be struck
+    // and wheeled in again every time somebody spoke.
+    if (bot.mo === recipe && loops) { started.current = key; return; }
     started.current = key;
     bot.playMoment(recipe, momentMode);
     if (reduced) { bot.settle(true); painter.current?.paint(bot); }
@@ -158,7 +163,10 @@ function Buddy({ props, ctx, store }: CompProps): React.ReactElement {
 
   useTileLoop({
     frame: (dt) => {
-      if (bot.scenesLive()) bot.setLevel(voiceLevel(store));
+      // LISTENING: his antenna is the microphone. The core lights it from `level` in that act, so the level has to be
+      // fed for it to light at all — the peeker at the edge of Home listens through this. A live scene may read his
+      // voice too (`level`, `talk`), so it is fed while one is playing.
+      if (act === "listen" || bot.scenesLive()) bot.setLevel(voiceLevel(store));
       bot.step(dt);
       if (bot.sceneBad.length || bot.sceneSlow.length) noteScenes(bot.sceneBad, bot.sceneSlow);
       painter.current?.paint(bot);
