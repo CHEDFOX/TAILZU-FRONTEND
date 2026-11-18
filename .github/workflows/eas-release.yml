@@ -220,6 +220,38 @@ jobs:
           PLATFORMS: ${{ steps.keys.outputs.platforms }}
         run: npx eas-cli@latest update --channel production --environment production --platform "$PLATFORMS" --message "${MSG%%$'\n'*}" --non-interactive
 
+      # A PLATFORM LEFT OUT MUST NOT PASS FOR A RELEASE.
+      #
+      # eas-keys.mjs drops a platform whose payment key it cannot read and says so with ::warning::, and a warning in
+      # an otherwise green run is invisible: every update went to iOS alone for as long as REVENUECAT_ANDROID_KEY was
+      # "secret" rather than "sensitive", and the first anyone knew of it was an Android phone with none of the work
+      # on it. The bundle still ships to whatever platform CAN take it — iOS is not held back for Android's key — and
+      # then this fails the run, so the gap is red instead of quiet.
+      - name: Every platform got the update
+        if: steps.native.outputs.send != 'false'
+        env:
+          PLATFORMS: ${{ steps.keys.outputs.platforms }}
+        run: |
+          {
+            echo "### Over-the-air update"
+            echo ""
+            echo "Published for: \`$PLATFORMS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PLATFORMS" != "all" ]; then
+            {
+              echo ""
+              echo "**This release did not reach every platform.** The one left out has its payment key stored as"
+              echo "\"secret\" on expo.dev, which only Expo's own builders can read — \`eas env:exec\` cannot, so the"
+              echo "bundle was never built for it."
+              echo ""
+              echo "Fix: expo.dev → the project → Environment variables → the \`production\` environment → set that"
+              echo "key's visibility to **Sensitive**. Then run this workflow by hand to publish the missing platform;"
+              echo "a push only publishes when \`app/**\` changes."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::The update went to '$PLATFORMS' only. Phones on every other platform are still on the build they had."
+            exit 1
+          fi
+
   ios:
     needs: gate
     if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.ios
