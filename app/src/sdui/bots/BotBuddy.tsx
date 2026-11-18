@@ -163,7 +163,10 @@ function Buddy({ props, ctx, store }: CompProps): React.ReactElement {
 
   useTileLoop({
     frame: (dt) => {
-      if (bot.scenesLive()) bot.setLevel(voiceLevel(store));
+      // LISTENING: his antenna is the microphone. The core lights it from `level` in that act, so the level has to be
+      // fed for it to light at all — the peeker at the edge of Home listens through this. A live scene may read his
+      // voice too (`level`, `talk`), so it is fed while one is playing.
+      if (act === "listen" || bot.scenesLive()) bot.setLevel(voiceLevel(store));
       bot.step(dt);
       if (bot.sceneBad.length || bot.sceneSlow.length) noteScenes(bot.sceneBad, bot.sceneSlow);
       painter.current?.paint(bot);

@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { placeOf, nextSpot, hopTo, inRange, widthOf, SIZE, SHOW, RISE_MS, DUCK_MS } from "./peekCore.ts";
+import { placeOf, nextSpot, hopTo, inRange, pocketIn, widthOf, SIZE, SHOW, RISE_MS, DUCK_MS } from "./peekCore.ts";
 
 /** A real iPhone: 390 x 844, a notch, and a tab bar over the home line. */
 const FRAME = { width: 390, height: 844, top: 59, bottom: 83, left: 0, right: 0 };
@@ -150,4 +150,24 @@ test("the hop goes further into the pocket and never sideways: a hop is not a mo
   const standing = placeOf({ edge: "bottom", along: 0.5 }, FRAME);
   assert.ok(hopTo(standing).y < standing.to.y, "one on the bottom edge hops up");
   assert.equal(hopTo(standing).x, standing.to.x);
+});
+
+test("THE POCKET IS TAKEN OUT OF ITS HOST'S FRAME: mounted inside the safe area, he is not pushed down twice", () => {
+  const p = placeOf({ edge: "notch", along: 0 }, FRAME);
+  // Home mounts him inside a SafeArea that has already taken the notch's height as padding.
+  const inHost = pocketIn(p, { x: 0, y: FRAME.top });
+  assert.equal(inHost.y, 0, "the notch's pocket is at the top of that host, not 59 points into it");
+  assert.equal(inHost.x, p.pocket.x, "and nothing moved sideways");
+  // A host at the window's own origin leaves it exactly as it was, which is why this was easy to miss.
+  assert.deepEqual(pocketIn(p, { x: 0, y: 0 }), p.pocket);
+});
+
+test("the host's frame never changes his SIZE, only where the pocket is", () => {
+  for (const edge of EDGES) {
+    const p = placeOf({ edge, along: 0.5 }, FRAME);
+    const moved = pocketIn(p, { x: 7, y: FRAME.top });
+    assert.equal(moved.width, p.pocket.width);
+    assert.equal(moved.height, p.pocket.height);
+    assert.equal(moved.x, p.pocket.x - 7);
+  }
 });

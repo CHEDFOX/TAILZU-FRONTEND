@@ -141,6 +141,18 @@ export function placeOf(spot: PeekSpot, frame: PeekFrame, size = SIZE): PeekPlac
   };
 }
 
+/**
+ * THE POCKET WHERE IT IS ACTUALLY DRAWN. `placeOf` works in the WINDOW's coordinates, because that is the only frame
+ * the safe area is written in. The node is mounted inside something else — on Home, a SafeArea that has already taken
+ * the status bar's height as padding — and an absolutely placed child is placed against its parent, so a pocket at
+ * `top: 59` on a phone with a 59-point notch was drawn at 118: a peeker halfway down the page.
+ *
+ * So the component measures where its host sits in the window and takes that off. A host at the window's own origin
+ * changes nothing, which is why this was easy to miss.
+ */
+export const pocketIn = (place: PeekPlace, host: { x: number; y: number }): PeekPlace["pocket"] =>
+  ({ ...place.pocket, x: place.pocket.x - host.x, y: place.pocket.y - host.y });
+
 /** The hop he gives when the words have landed: a nudge further into the pocket, and back. */
 export function hopTo(place: PeekPlace, size = SIZE): { x: number; y: number } {
   const by = Math.round(size * 0.18);

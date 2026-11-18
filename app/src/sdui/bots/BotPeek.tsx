@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import { BotBuddy } from "./BotBuddy";
-import { DUCK_MS, HOP_MS, RISE_MS, SIZE, hopTo, inRange, nextSpot, placeOf, widthOf, type PeekFrame, type PeekSpot } from "./peekCore";
+import { DUCK_MS, HOP_MS, RISE_MS, SIZE, hopTo, inRange, nextSpot, placeOf, pocketIn, widthOf, type PeekFrame, type PeekSpot } from "./peekCore";
 
 type Phase = "hidden" | "rising" | "up" | "hopping" | "ducking";
 
@@ -63,6 +63,22 @@ export const BotPeek = (all: CompProps) => {
   }, []);
 
   const place = at >= 0 && spots[at] ? placeOf(spots[at]!, frame, size) : null;
+
+  /**
+   * WHERE HIS HOST SITS IN THE WINDOW. The pocket is worked out in the window's own coordinates, because that is the
+   * frame the safe area is written in; this node is mounted inside something else (on Home, a SafeArea that has
+   * already taken the notch's height as padding), and an absolute child is placed against its parent. Measured once
+   * the host has a layout, and again whenever it moves, so the pocket lands where the arithmetic meant it to.
+   */
+  const host = useRef<View | null>(null);
+  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
+  const measure = () => {
+    const h = host.current as unknown as { measureInWindow?: (cb: (x: number, y: number) => void) => void } | null;
+    h?.measureInWindow?.((x, y) => {
+      if (typeof x !== "number" || typeof y !== "number" || x !== x || y !== y) return;
+      setOrigin((was) => (was && Math.abs(was.x - x) < 0.5 && Math.abs(was.y - y) < 0.5 ? was : { x, y }));
+    });
+  };
 
   /** Called, he comes to `home` and stays there; that is the one time the spot is not his own choice. */
   useEffect(() => {
@@ -116,14 +132,21 @@ export const BotPeek = (all: CompProps) => {
   /** The answer has landed: one hop, then away. */
   useEffect(() => { if (done && phase === "up") setPhase("hopping"); }, [done]);
 
-  if (!place) return null;
+  // Nothing is drawn until the host has been measured: a pocket in the wrong frame is a bot standing on the page.
+  const shell = (inner: React.ReactNode) => (
+    <View ref={host} onLayout={measure} pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}>
+      {inner}
+    </View>
+  );
+  if (!place || !origin) return shell(null);
   const w = widthOf(size);
-  const { pocket, from, to } = place;
+  const { from, to } = place;
+  const pocket = pocketIn(place, origin);
   const hopBy = hopTo(place, size);
 
   // THE POCKET IS THE SAFETY. It sits inside the safe area and is only as deep as a peek, so nothing of him can be
   // drawn over the status bar or the tab bar whatever the phone's cutout is. He moves inside it, and that is all.
-  return (
+  return shell(
     <View
       pointerEvents="none"
       accessibilityElementsHidden
@@ -162,11 +185,14 @@ export const BotPeek = (all: CompProps) => {
             width: w,
             state: bot.state ?? "idle",
             ...(bot.avatar ? { avatar: bot.avatar } : {}),
-            // The glow is the catalog's, not this file's.
+            // LISTENING, and that is the whole of the antenna's light: the motion core lights it from the voice's own
+            // level in this act (botTiles/core.ts `glowTo = level * 1.2`), exactly as the window's Blip does. A page
+            // that wants something MORE than the light while he listens sends a `liveMoment` as well.
+            ...(live ? { act: "listen" as const } : {}),
             ...(live && p.liveMoment ? { moment: p.liveMoment, momentMode: "loop" } : {}),
           }}
         />
       </Animated.View>
-    </View>
+    </View>,
   );
 };
