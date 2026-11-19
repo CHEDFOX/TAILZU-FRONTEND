@@ -205,9 +205,25 @@ jobs:
         working-directory: app
         run: npm ci
 
-      - name: Payment keys present
+      # THE PAYMENT KEY NO LONGER DECIDES WHO GETS AN UPDATE.
+      #
+      # It used to: a platform whose RevenueCat key this runner could not read was dropped from --platform, because
+      # `eas update` re-bakes app.config.ts and would have replaced a working key in the manifest with an empty
+      # string. A variable stored as "secret" on expo.dev reads empty through `eas env:exec`, so ANDROID WAS DROPPED
+      # FROM EVERY UPDATE and nobody on it saw a single one — while the run stayed green on a ::warning::.
+      #
+      # That danger is already handled, and not here: the server sends the key (bootstrap `billing.revenueCatKey.*`)
+      # and the app takes it at boot over whatever the manifest holds (billing/purchases.ts `setBillingKey`). The
+      # manifest is the fallback. So a key missing HERE costs that fallback, not the key — and it must not cost
+      # everyone on that platform every bit of work besides.
+      #
+      # It still warns, because the fallback is worth having: give the variable "sensitive" visibility on expo.dev,
+      # not "secret". These are the public SDK keys that ship in the binary and sit in the manifest in plain text,
+      # so there is nothing in them to keep secret.
+      - name: Payment keys present (a warning, never a gate)
         id: keys
         if: steps.native.outputs.send != 'false'
+        continue-on-error: true
         working-directory: app
         run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs --any ios android" --non-interactive
 
@@ -217,40 +233,20 @@ jobs:
         # Through env, never pasted into the script: both are free text.
         env:
           MSG: ${{ github.event_name == 'push' && github.event.head_commit.message || inputs.message }}
-          PLATFORMS: ${{ steps.keys.outputs.platforms }}
-        run: npx eas-cli@latest update --channel production --environment production --platform "$PLATFORMS" --message "${MSG%%$'\n'*}" --non-interactive
+        run: npx eas-cli@latest update --channel production --environment production --platform all --message "${MSG%%$'\n'*}" --non-interactive
 
-      # A PLATFORM LEFT OUT MUST NOT PASS FOR A RELEASE.
-      #
-      # eas-keys.mjs drops a platform whose payment key it cannot read and says so with ::warning::, and a warning in
-      # an otherwise green run is invisible: every update went to iOS alone for as long as REVENUECAT_ANDROID_KEY was
-      # "secret" rather than "sensitive", and the first anyone knew of it was an Android phone with none of the work
-      # on it. The bundle still ships to whatever platform CAN take it — iOS is not held back for Android's key — and
-      # then this fails the run, so the gap is red instead of quiet.
-      - name: Every platform got the update
+      - name: What went out
         if: steps.native.outputs.send != 'false'
-        env:
-          PLATFORMS: ${{ steps.keys.outputs.platforms }}
         run: |
           {
             echo "### Over-the-air update"
             echo ""
-            echo "Published for: \`$PLATFORMS\`"
+            echo "Published for **all platforms** on channel \`production\`."
+            echo ""
+            echo "The RevenueCat key in the manifest is a fallback: the server sends it at boot and the app prefers"
+            echo "that. If the step above warned that a key reads empty here, the fallback is missing for that"
+            echo "platform — set the variable's visibility to **Sensitive** on expo.dev, not Secret."
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$PLATFORMS" != "all" ]; then
-            {
-              echo ""
-              echo "**This release did not reach every platform.** The one left out has its payment key stored as"
-              echo "\"secret\" on expo.dev, which only Expo's own builders can read — \`eas env:exec\` cannot, so the"
-              echo "bundle was never built for it."
-              echo ""
-              echo "Fix: expo.dev → the project → Environment variables → the \`production\` environment → set that"
-              echo "key's visibility to **Sensitive**. Then run this workflow by hand to publish the missing platform;"
-              echo "a push only publishes when \`app/**\` changes."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::The update went to '$PLATFORMS' only. Phones on every other platform are still on the build they had."
-            exit 1
-          fi
 
   ios:
     needs: gate

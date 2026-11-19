@@ -531,15 +531,22 @@ handshake then withholds exactly the new work from it — correctly. So the peek
 of Home stayed, which reads as "the server did not change" rather than "this phone is three OTAs behind". Server work
 and app work looked equally dead from the outside.
 
-**THE FIX IS NOT IN THIS REPOSITORY.** On expo.dev → the project → Environment variables → the `production`
-environment, `REVENUECAT_ANDROID_KEY` has to be **Sensitive**, not Secret. Then run the release workflow by hand: a
-push only publishes when `app/**` changes, and the Android bundle has never been built, so nothing will republish on
-its own.
+**AND THE GATE WAS ALREADY OBSOLETE.** It exists because `eas update` re-bakes `app.config.ts`, so publishing
+without the variable would have replaced a working key in the manifest with an empty string — "purchases worked,
+nobody changed anything about billing, and then they stopped". That is handled now, and not in the workflow: the
+server sends the key (`bootstrap.ts` → `billing.revenueCatKey.ios` / `.android`) and the app takes it at boot over
+whatever the manifest holds (`billing/purchases.ts` `setBillingKey`). **The live server serves both**, 32 characters
+each, checked against `POST /v1/app/bootstrap`. So the manifest is the fallback, and a key missing on the runner
+costs that fallback — not the key, and certainly not everyone on that platform every other bit of work.
 
-What was changed here: the release fails the run now when a platform is left out (`Every platform got the update`),
-after publishing to whichever platform CAN take it — iOS is never held back for Android's key. A gap is red instead
-of quiet. `SENTRY_DSN` and `POSTHOG_API_KEY` read empty from the runner too, so these releases report no crashes and
-no analytics; same cause, same fix, worth doing at the same time.
+So the release publishes `--platform all` now and the key check is a warning that cannot gate. Android gets updates
+again with nothing to change on expo.dev. **Setting `REVENUECAT_ANDROID_KEY` to "sensitive" there is still worth
+doing** — it restores the fallback — but it is no longer what stands between Android and a release. These are the
+public SDK keys: they ship inside the binary and sit in the manifest in plain text, so there is nothing in them to
+keep secret, and "secret" visibility buys nothing while costing this.
+
+`SENTRY_DSN` and `POSTHOG_API_KEY` read empty from the runner too, so these releases report no crashes and no
+analytics. Same cause, same one-line fix, worth doing while you are in there.
 
 ## A PENDING MIGRATION CAN BE SKIPPED A SECOND WAY: THE BUILD CACHES IT (18 Nov)
 
