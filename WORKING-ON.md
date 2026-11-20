@@ -506,6 +506,41 @@ It wears `slate` (#4A535C), a cool graphite added to `SHIPPED_ONLY` so it is nev
 balloons on one thread (`glyphs.ts` `balloons`) rather than the sparkle every AI product uses — which is also X0's own
 mark and had to stay that way. 12,435 tests pass. `BOTS` is off, so none of it is reachable yet.
 
+## REVENUECAT NO LONGER TOUCHES A RELEASE (20 Nov)
+
+The coupling is cut at the root rather than loosened. **The billing keys are out of the manifest.** `app.config.ts`
+baked them from the environment, `eas update` re-evaluates that config on every publish, and the whole mess followed
+from those two facts:
+
+* an update published without the variables replaced working keys with empty strings — purchases stopped, nobody had
+  touched billing, and the message blamed a build that was fine;
+* the guard added for that refused to publish for a platform whose key the release could not read, which let a
+  **payment integration decide who received JavaScript**. Stored as "secret" on expo.dev a variable reads empty to
+  `eas env:exec`, so Android was dropped from every update for two months while the run stayed green on a warning.
+
+The server already sent the keys (`bootstrap` → `billing.revenueCatKey.ios` / `.android`) and the app already took
+them at boot over the manifest. So the manifest half was deleted, not patched: nothing for a publish to lose, nothing
+to guard, and the key in exactly one place — the server's own `.env`, which is where keys belong here anyway.
+
+What went with it: both store-build key gates (the binary carries no key either now), the update job's gate, the
+check job's, and `tools/ci/eas-keys.mjs` itself. The release mentions RevenueCat nowhere.
+
+**Verified rather than assumed.** `npx expo config --type public` gives the real manifest: no `revenueCat*` in
+`extra`, `sentryDsn` / `posthogApiKey` / `metaAppId` still there, and **`runtimeVersion` still
+`tailzu-2026-11-x0-blip`** — had that moved, every installed app would have stopped taking updates. The live server
+still serves both keys, 32 characters each. `app/src/billing/keyFromServer.test.ts` fails if either half comes back.
+
+**One consequence to know.** A store build CAN read a "secret" variable, so the binaries shipped with a key in their
+manifest; an update replaces that manifest. Phones that took the 19 Nov update already have an empty key there, and
+after this one no manifest anywhere carries one. Billing therefore depends on bootstrap reaching the phone — which
+it does on every launch and from the disk cache after the first. The only uncovered case is a first-ever launch with
+no network, which sits on the offline card and cannot reach RevenueCat regardless.
+
+**The EAS variables are now unused.** `REVENUECAT_IOS_KEY` (two entries, one Sensitive and one Secret) and
+`REVENUECAT_ANDROID_KEY` can be deleted. `SENTRY_DSN` and `POSTHOG_API_KEY` are a different matter: they are still
+read by `app.config.ts`, still read empty on the runner, and so these releases still report no crashes and no
+analytics. Those two want "sensitive" visibility.
+
 ## EVERY OTA HAS BEEN iOS ONLY. ANDROID HAS HAD NONE OF IT (18 Nov)
 
 **Why "I don't see the changes in the app" was true, and not a caching story.** From the release log, verbatim:

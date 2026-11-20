@@ -12,37 +12,39 @@
  * only handles the actual purchase mechanics + entitlement reads.
  */
 import { Platform } from "react-native";
-import Constants from "expo-constants";
 import Purchases, { LOG_LEVEL, PRORATION_MODE, PurchasesOffering } from "react-native-purchases";
 import { num, str, txt } from "../sdui/knobs";
 
-const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
-const IOS_KEY = extra.revenueCatIosKey ?? "";
-const ANDROID_KEY = extra.revenueCatAndroidKey ?? "";
-
 /**
- * A BUILD-TIME KEY IN THE MANIFEST IS NOT A BUILD-TIME KEY.
+ * THE KEY COMES FROM THE SERVER, AND FROM NOWHERE ELSE.
  *
- * `Constants.expoConfig` is the config of the UPDATE that is running, not of
- * the binary it is running inside. app.config.ts bakes these two values from
- * the environment at the moment the config is evaluated — and that happens
- * again on every `eas update`. Publish one from a machine that does not have
- * the variables set and the new manifest carries two empty strings, which
- * then replace perfectly good keys in an app that was built correctly.
+ * It used to be baked into the manifest by app.config.ts, and that was a trap
+ * twice over. `Constants.expoConfig` is the config of the UPDATE that is
+ * running, not of the binary it runs inside, and `eas update` re-evaluates
+ * that config on every publish — so an update published without the variables
+ * set replaced perfectly good keys with empty strings. The symptom was the
+ * worst kind: purchases worked, nobody changed anything about billing, and
+ * then they stopped, with a message blaming a build that was fine.
  *
- * The symptom is the worst kind: purchases worked, nobody changed anything
- * about billing, and then they stopped, with a message saying the build has
- * no key — about a build that does.
+ * The guard that followed was worse than the bug. The release refused to
+ * publish for a platform whose key it could not read, which let a PAYMENT
+ * integration decide who received JavaScript; a variable stored as "secret"
+ * on expo.dev reads empty to the release job, so Android was dropped from
+ * every update for two months and nobody on it saw any work at all.
  *
- * So the manifest is the FALLBACK now, and the server's answer wins. These are
- * the public SDK keys: they ship inside the binary and sit in the manifest in
- * plain text already, so serving them is not a disclosure. What it buys is a
- * key that cannot be lost by publishing, and one that can be corrected without
- * a release.
+ * So the manifest holds no key now. `setBillingKey` is called at boot with
+ * what bootstrap sent (`billing.revenueCatKey.*`, from the server's own .env):
+ * one place to keep it, one place to correct it, nothing a publish can lose,
+ * and nothing about billing that can hold up a release.
+ *
+ * Until that call, billing is simply off — `isBillingEnabled()` is false and
+ * `buyPackage` says so. The only launch that reaches the paywall without a key
+ * is a first-ever launch with no network, which is sitting on the offline card
+ * and could not reach RevenueCat anyway.
  */
 let initPromise: Promise<void> | null = null;
 
-let KEY = Platform.OS === "ios" ? IOS_KEY : ANDROID_KEY;
+let KEY = "";
 
 export function setBillingKey(key?: string | null): void {
   const next = String(key ?? "").trim();

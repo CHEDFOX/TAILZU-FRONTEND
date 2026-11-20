@@ -25,7 +25,6 @@
 # Updates and GitHub builds read the EAS "production" environment from here,
 # where a "secret" variable cannot be read. "Payment keys present" stops the
 # run rather than ship a phone that cannot take a payment
-# (tools/ci/eas-keys.mjs).
 #
 # Requirements (one-time, repo settings → Secrets and variables → Actions):
 #   EXPO_TOKEN — an Expo access token (expo.dev → Account settings → Access
@@ -110,10 +109,6 @@ jobs:
         run: |
           npx eas-cli@latest whoami
           npx eas-cli@latest project:info
-
-      - name: Payment keys
-        working-directory: app
-        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs --any ios android" --non-interactive
 
       - name: Update channel
         working-directory: app
@@ -205,28 +200,16 @@ jobs:
         working-directory: app
         run: npm ci
 
-      # THE PAYMENT KEY NO LONGER DECIDES WHO GETS AN UPDATE.
+      # NOTHING ABOUT BILLING IS CHECKED HERE, ON PURPOSE.
       #
-      # It used to: a platform whose RevenueCat key this runner could not read was dropped from --platform, because
+      # This job used to read the RevenueCat keys and drop any platform whose key it could not get, because
       # `eas update` re-bakes app.config.ts and would have replaced a working key in the manifest with an empty
-      # string. A variable stored as "secret" on expo.dev reads empty through `eas env:exec`, so ANDROID WAS DROPPED
-      # FROM EVERY UPDATE and nobody on it saw a single one — while the run stayed green on a ::warning::.
+      # string. A variable stored as "secret" on expo.dev reads empty through `eas env:exec`, so ANDROID WAS
+      # DROPPED FROM EVERY UPDATE for two months while the run stayed green on a warning.
       #
-      # That danger is already handled, and not here: the server sends the key (bootstrap `billing.revenueCatKey.*`)
-      # and the app takes it at boot over whatever the manifest holds (billing/purchases.ts `setBillingKey`). The
-      # manifest is the fallback. So a key missing HERE costs that fallback, not the key — and it must not cost
-      # everyone on that platform every bit of work besides.
-      #
-      # It still warns, because the fallback is worth having: give the variable "sensitive" visibility on expo.dev,
-      # not "secret". These are the public SDK keys that ship in the binary and sit in the manifest in plain text,
-      # so there is nothing in them to keep secret.
-      - name: Payment keys present (a warning, never a gate)
-        id: keys
-        if: steps.native.outputs.send != 'false'
-        continue-on-error: true
-        working-directory: app
-        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs --any ios android" --non-interactive
-
+      # The keys are not in the manifest any more (app.config.ts says why): the server sends them and the app takes
+      # them at boot. There is nothing here for a publish to lose, so there is nothing here to check — and a payment
+      # integration has no business deciding who receives JavaScript.
       - name: EAS update (over the air, production)
         if: steps.native.outputs.send != 'false'
         working-directory: app
@@ -243,9 +226,8 @@ jobs:
             echo ""
             echo "Published for **all platforms** on channel \`production\`."
             echo ""
-            echo "The RevenueCat key in the manifest is a fallback: the server sends it at boot and the app prefers"
-            echo "that. If the step above warned that a key reads empty here, the fallback is missing for that"
-            echo "platform — set the variable's visibility to **Sensitive** on expo.dev, not Secret."
+            echo "Billing keys are not in this bundle and never will be: the server sends them at boot"
+            echo "(app.config.ts says why). Nothing about a payment integration gates a release."
           } >> "$GITHUB_STEP_SUMMARY"
 
   ios:
@@ -286,11 +268,6 @@ jobs:
           if [ -z "$XC" ]; then echo "::error::This runner has no Xcode 26. Run again with builder: expo."; exit 1; fi
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
-
-      - name: Payment keys present
-        if: inputs.builder == 'github'
-        working-directory: app
-        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs ios" --non-interactive
 
       - name: Build on this runner
         if: inputs.builder == 'github'
@@ -374,11 +351,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-
-      - name: Payment keys present
-        if: inputs.builder == 'github'
-        working-directory: app
-        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs android" --non-interactive
 
       - name: Build on this runner
         if: inputs.builder == 'github'

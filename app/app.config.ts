@@ -1025,8 +1025,20 @@ const config: ExpoConfig = {
     sentryDsn: process.env.SENTRY_DSN ?? "",
     posthogApiKey: process.env.POSTHOG_API_KEY ?? "",
     posthogHost: process.env.POSTHOG_HOST ?? "https://us.i.posthog.com",
-    revenueCatIosKey: process.env.REVENUECAT_IOS_KEY ?? "",
-    revenueCatAndroidKey: process.env.REVENUECAT_ANDROID_KEY ?? "",
+    // THE REVENUECAT KEYS ARE NOT HERE, AND MUST NOT COME BACK.
+    //
+    // They used to be baked from the environment like the two above, and `eas update` re-evaluates this config on
+    // every publish — so an update built on a machine without the variables replaced a working key with an empty
+    // string on every phone that took it. Purchases stopped, nobody had touched billing, and the message blamed a
+    // build that was fine (billing/purchases.ts tells that story).
+    //
+    // The guard added then was worse than the bug: the release refused to publish for a platform whose key it could
+    // not read, which let a PAYMENT key decide who got JavaScript. A variable stored as "secret" on expo.dev reads
+    // empty through `eas env:exec`, so Android was dropped from every update for two months.
+    //
+    // The server sends them now (bootstrap `billing.revenueCatKey.ios` / `.android`, from its own .env) and the app
+    // takes them at boot. Nothing here to lose means no guard to need: an update cannot clobber a key, a release
+    // cannot be held up by one, and the key lives in exactly one place.
     // Only when the SDK is configured in this build (metaPlugin above). ANDROID READS IT AND THE IPHONE DOES NOT:
     // src/telemetry/meta.ts leaves at once on iOS, where the binary has no Meta SDK to start. The id is not a secret
     // and one config serves both platforms, so it is left as it is rather than branched on an environment variable

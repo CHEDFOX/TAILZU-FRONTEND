@@ -42,7 +42,7 @@ app/                      the Expo app
    └─ widgets/            WidgetKit: the X0 widget, Live Activities (Bots at work, the mic session, setup), controls
 docs/                     guides: launch, shipping, streaming protocol, SMS/OTP setup, keyboard spec, store listing
 tools/
-├─ ci/                    scripts the workflows run (eas-keys.mjs, ios-version.mjs) and the Swift stand-in for ExpoModulesCore
+├─ ci/                    scripts the workflows run (ios-version.mjs) and the Swift stand-in for ExpoModulesCore
 ├─ knobs/                 knob manifests (app-knobs.json, keyboard-knobs.json) and the extractors that write them
 ├─ keyboard-sim/          types into the iOS keyboard's real touch code on Linux (CI: keyboard-sim)
 ├─ android-compile/       fast local type-check of the Android keyboard's Kotlin
