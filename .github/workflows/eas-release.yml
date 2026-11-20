@@ -23,8 +23,12 @@
 # code from reaching a binary that lacks it.
 #
 # Updates and GitHub builds read the EAS "production" environment from here,
-# where a "secret" variable cannot be read. "Payment keys present" stops the
-# run rather than ship a phone that cannot take a payment
+# where a "secret" variable cannot be read. Nothing about billing is checked:
+# the keys are not in the bundle at all (app.config.ts says why).
+#
+# A push that cannot be delivered over the air FAILS the run. It used to warn
+# and finish green, which is how a release that reached nobody looked exactly
+# like one that worked.
 #
 # Requirements (one-time, repo settings → Secrets and variables → Actions):
 #   EXPO_TOKEN — an Expo access token (expo.dev → Account settings → Access
@@ -167,18 +171,42 @@ jobs:
         if: github.event_name == 'push'
         env:
           BEFORE: ${{ github.event.before }}
+        # A RELEASE THAT SENT NOTHING IS RED, NOT GREEN.
+        #
+        # This used to set send=false and exit 0, so every later step skipped and the run finished with a green tick.
+        # Nothing had failed and nothing had shipped, and the only way to find out was to notice days later that the
+        # app had not changed — which is exactly how Android being left out of every update went unnoticed for two
+        # months. A commit that is on main but not on anybody's phone is a thing somebody has to act on, so it says so.
+        #
+        # What to do when this fails is in the summary: a store build for a real native change, or run the workflow by
+        # hand (where this check does not apply) when the file on the list was touched for something an update can
+        # carry — removing a value from `extra`, say, with runtimeVersion unmoved.
         run: |
+          stop() {
+            {
+              echo "### No update was sent"
+              echo ""
+              echo "$1"
+              echo ""
+              echo "**The commit is on \`main\` but not on any phone.** Either:"
+              echo ""
+              echo "- it needs a **store build** — run this workflow by hand with \`ios\` and/or \`android\` ticked; or"
+              echo "- an over-the-air update really can carry it (nothing native actually moved, \`runtimeVersion\`"
+              echo "  unchanged) — run this workflow by hand with just \`update\`, which skips this check."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            echo "::error::No update was sent, so this commit is not on any phone. See the run summary."
+            exit 1
+          }
           if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "::warning::No earlier commit to compare with, so no update was sent. Run the workflow by hand."
-            echo "send=false" >> "$GITHUB_OUTPUT"; exit 0
+            stop "There is no earlier commit to compare against, so which files changed could not be worked out."
           fi
           # react-native.config.js is on the list because it decides whether
           # Health Connect is linked into the Android binary at all.
           hit=$(git diff --name-only "$BEFORE" HEAD | grep -E '^app/(targets|modules|plugins|ios|android)/|^app/(app\.config\.ts|react-native\.config\.js|package\.json|package-lock\.json|eas\.json)$' || true)
           if [ -n "$hit" ]; then
-            echo "::warning::Native files changed, so this needs a store build, not an update. No update was sent."
             echo "$hit"
-            echo "send=false" >> "$GITHUB_OUTPUT"; exit 0
+            stop "These files can carry native changes, which an over-the-air update cannot deliver:$(printf '\n- `%s`' $hit)"
           fi
           echo "send=true" >> "$GITHUB_OUTPUT"
 
