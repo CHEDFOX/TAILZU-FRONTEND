@@ -168,6 +168,13 @@ export const CORE_COMPONENTS = [
   /** NOT A COMPONENT — BotStage's on.onDoubleTap and a Home tile's doubleTap (BotTiles.tsx): a single tap then waits 260 ms. */
   "DoubleTap",
   /**
+   * NOT A COMPONENT — a Scroll that goes SIDEWAYS (components/Scroll.tsx `horizontal`): a week of days, a row of anything
+   * longer than the screen. Its own name because a build without it lays that row out DOWN the screen — a ScrollView puts
+   * its children in contentContainerStyle, so a flexDirection on the box is ignored — and a week drawn as a column is
+   * worse than the arrows it replaces. The server keeps the arrows for a build that does not say this.
+   */
+  "ScrollX",
+  /**
    * NOT A COMPONENT — the kit's extras for the new screens: TextField keyboard / autoFocus / maxLength (TextField.tsx);
    * Screen and Scroll startAtEnd; a dotted border with a radius drawn dotted on Android too (Stack.tsx); callEndpoint.stay
    * (a phone never fetches the screen again after a write, so it has nothing to skip); a failed call's { code, message } at
