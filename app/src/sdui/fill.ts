@@ -83,6 +83,8 @@ export function fillText(value: any, ctx: Scope, opts?: { encode?: boolean }): s
     const v = resolveValue(value, ctx, opts);
     return v == null ? "" : typeof v === "string" ? v : String(v);
   }
+  // "\@" is the character itself, not a key (Renderer.tsx says why): the same escape "$" has above.
+  if (value.startsWith("\\@")) return value.slice(1);
   if (value.startsWith("@")) return ctx.labels[value.slice(1)] ?? "";
   if (value === "$event" || /^\$(state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]$/.test(value)) {
     const v = resolveValue(value, ctx);

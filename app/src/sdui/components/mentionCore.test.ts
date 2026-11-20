@@ -6,8 +6,8 @@
 import test from "node:test";
 import assert from "node:assert";
 import {
-  EMPTY, atSubmit, backspace, canSend, draftOf, escape, filterBots, filterPeople, fromDraft, isEmptyDraft, pickBot, pickPerson, pickThing, pickTool,
-  tokenAt, typed, type BotRef, type Person,
+  EMPTY, atSubmit, backspace, canSend, draftOf, escape, filterBots, filterCommands, filterPeople, fromDraft, isEmptyDraft, pickBot, pickCommand,
+  pickPerson, pickThing, pickTool, tokenAt, typed, type BotRef, type Person,
 } from "./mentionCore.ts";
 
 const PEOPLE: Person[] = [{ id: "u1", name: "Mom" }, { id: "u2", name: "Rohan Sharma" }, { id: "u3", name: "Meera" }];
@@ -118,4 +118,71 @@ test("sending \"@name\" typed out: one match is a chip, two open the list and se
   assert.strictEqual(chip.state.text, "@rohan hi");
   const plain = atSubmit(typed(EMPTY, "hi @mom"), PEOPLE);
   assert.strictEqual(plain.state.person, null, "not at the start: words");
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// pick "bot": "/" NAMES THE BOT THE MESSAGE GOES TO, and nothing is fetched (Talk's bar, docs/talk-door.md). The default
+// is unchanged: "/" then a bot opens that bot's THINGS, which is what a space's composer shares.
+
+test('pick "bot": a bot from "/" becomes the chip, and no things are opened', () => {
+  const after = pickBot(typed(EMPTY, "/pl"), BOTS[0]!, "bot");
+  assert.strictEqual(after.menu, null, "no list stays open: there is nothing more to pick");
+  assert.deepStrictEqual(after.bot, BOTS[0], "the bot itself is the chip");
+  assert.strictEqual(after.thing, null);
+  assert.strictEqual(after.text, "", 'the "/pl" is taken out of the words');
+  // The draft says the bot and no thing, which is exactly how the two are told apart on the wire.
+  assert.deepStrictEqual(draftOf({ ...after, text: "what's on tomorrow" }), {
+    text: "what's on tomorrow", toId: "", toName: "", bot: "plan", botName: "Plan Ease", thingId: "", thingTitle: "",
+  });
+});
+
+test('the default is untouched: "/" then a bot still opens that bot\'s things', () => {
+  const after = pickBot(typed(EMPTY, "/pl"), BOTS[0]!);
+  assert.deepStrictEqual(after.menu, { kind: "things", bot: "plan", botName: "Plan Ease" });
+  assert.strictEqual(after.bot, null, "no bot chip: the thing will be the chip");
+});
+
+test('a bot chip and a person chip live together: "@Mom /plan …" is both', () => {
+  const withBot = pickBot(typed(EMPTY, "/pl"), BOTS[0]!, "bot");
+  const both = pickPerson(typed(withBot, "@Mo"), PEOPLE[0]!);
+  const d = draftOf({ ...both, text: "ask about the advance" });
+  assert.strictEqual(d.bot, "plan");
+  assert.strictEqual(d.toId, "u1");
+  assert.strictEqual(d.thingId, "", "a bot chip is not a thing");
+});
+
+test("backspace takes the bot chip off, after the thing and before the person", () => {
+  const s = pickPerson(typed(pickBot(EMPTY, BOTS[0]!, "bot"), "@Mo"), PEOPLE[0]!);
+  const noBot = backspace({ ...s, text: "" });
+  assert.strictEqual(noBot.bot, null);
+  assert.strictEqual(noBot.person?.id, "u1", "the person stays: one chip at a time");
+  assert.strictEqual(backspace(noBot).person, null);
+});
+
+test("a bot chip survives a draft written and read back, and an empty draft still reads as empty", () => {
+  const d = draftOf(pickBot(EMPTY, BOTS[0]!, "bot"));
+  assert.strictEqual(fromDraft(d).bot?.slug, "plan");
+  assert.strictEqual(fromDraft(d).thing, null);
+  assert.strictEqual(isEmptyDraft(d), false, "a bot named is something the field holds");
+  assert.strictEqual(isEmptyDraft({ text: "", toId: "", bot: "", thingId: "" }), true);
+  // A bot chip alone is not something to SEND: "/plan" with nothing asked is not a message.
+  assert.strictEqual(canSend(pickBot(EMPTY, BOTS[0]!, "bot")), false);
+  assert.strictEqual(canSend({ ...pickBot(EMPTY, BOTS[0]!, "bot"), text: "hi" }), true);
+});
+
+test('a command from "/" types "/name " into the words and keeps nothing on the side', () => {
+  const s = pickCommand(typed(EMPTY, "/ne"), { name: "new", line: "Start a new thread" });
+  assert.strictEqual(s.text, "/new ");
+  assert.strictEqual(s.menu, null);
+  assert.strictEqual(s.bot, null, "a command is not a bot");
+  // Mid-sentence, only the trigger is replaced.
+  const mid = pickCommand(typed(EMPTY, "ok /ne"), { name: "new" });
+  assert.strictEqual(mid.text, "ok /new ");
+});
+
+test("the commands list filters on what follows the /", () => {
+  const cmds = [{ name: "new" }, { name: "clear" }];
+  assert.deepStrictEqual(filterCommands(cmds, "n").map((c) => c.name), ["new"]);
+  assert.deepStrictEqual(filterCommands(cmds, "").map((c) => c.name), ["new", "clear"]);
+  assert.deepStrictEqual(filterCommands(cmds, "zz"), []);
 });

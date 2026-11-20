@@ -160,6 +160,17 @@ export const CORE_COMPONENTS = [
    */
   "BotStage", "BotCrowd", "Vanish", "MentionField", "LiveWords",
   /**
+   * NOT A COMPONENT — what TALK'S bar needs of MentionField (components/MentionField.tsx, mentionCore.ts): `pick: "bot"`,
+   * where a bot picked from "/" becomes the chip on the message and no things are fetched, and `commands`, the rows under
+   * the bots for the names the screen keeps for itself ("/new").
+   *
+   * Its own name because the default is the opposite: without it, "/" then a bot opens that BOT'S THINGS to share one.
+   * A build that does not say this and were sent Talk's field would answer "/plan" by fetching things nobody asked for,
+   * so the server draws it the plain message box instead — which sends through the same door, and where plain language
+   * still does everything. The marks are a faster way to say something, never the only way.
+   */
+  "MentionCommands",
+  /**
    * NOT A COMPONENT — the voiceLive and voiceStop actions (voice/voiceLive.ts): live words over /v1/transcribe-stream, a turn
    * ending on a pause. Only when this binary has the stream module: client/capabilities.ts takes the name out otherwise, and
    * the server then sends no voice piece at all.

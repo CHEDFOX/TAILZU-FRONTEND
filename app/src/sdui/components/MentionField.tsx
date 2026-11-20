@@ -1,21 +1,27 @@
 /**
- * MentionField — a message field where "@" picks a person and "/" a bot's thing (types.ts MentionFieldProps, component
- * "MentionField"; section 3i): the space's composer, in its bot's thought.
+ * MentionField — a message field where "@" picks a person and "/" a bot (types.ts MentionFieldProps, component
+ * "MentionField"; section 3i): the space's composer in its bot's thought, and Talk's own bar.
  *
- * It owns its words, its chips (a person, a thing: 28 high, round, a light fill, with an x) and the list over the words:
- * People ("@", each with their own tiny bot from the row's `bot`, never a letter: bots/PersonBot.tsx), the person's bots ("/",
- * each with its dot, then `tools` under a line), and a bot's things (fetched from
- * `thingsPath` with the app's own signed-in call). The rules are mentionCore.ts's. Every change writes a MentionDraft to
- * `draftPath` (the words without the chips); the return key and the send button run on.onSubmit, after "@name" typed out
- * is turned into its chip (or, with two such people, their list opens and nothing is sent). When the screen clears
- * `draftPath` the field empties itself, chips too. The list is drawn in the field, over the words, never outside it: the
- * box it sits in grows with it (Android hands no touch to what is drawn outside its parent).
+ * It owns its words, its chips (a person, and from "/" either a thing or a bot: 28 high, round, a light fill, with an x)
+ * and the list over the words: People ("@", each with their own tiny bot from the row's `bot`, never a letter:
+ * bots/PersonBot.tsx), the person's bots ("/", each with its dot, then `commands` and `tools` under a line), and a bot's
+ * things (fetched from `thingsPath` with the app's own signed-in call).
+ *
+ * WHAT "/" THEN A BOT DOES is the screen's `pick` (capability MentionCommands, mentionCore.ts):
+ *   "thing" (default) that bot's things open and one becomes the chip — sharing a thing FROM a bot (the space's feed).
+ *   "bot"             the bot becomes the chip and nothing is fetched — naming the bot the message GOES TO (Talk).
+ *
+ * The rules are mentionCore.ts's. Every change writes a MentionDraft to `draftPath` (the words without the chips); the
+ * return key and the send button run on.onSubmit, after "@name" typed out is turned into its chip (or, with two such
+ * people, their list opens and nothing is sent). When the screen clears `draftPath` the field empties itself, chips too.
+ * The list is drawn in the field, over the words, never outside it: the box it sits in grows with it (Android hands no
+ * touch to what is drawn outside its parent).
  *
  * In a footer, it tells the footer when it has the keyboard (as TextField does), so the footer rises over it; left empty
  * when the keyboard goes, it closes the thought it is in (bots/thought.ts).
  *
  *   { type: "MentionField", props: { life, placeholder, draftPath, people, bots, thingsPath, tools?, words, maxLength?,
- *     autoFocus? }, on: { onSubmit } }
+ *     autoFocus?, pick?, commands? }, on: { onSubmit } }
  */
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -30,8 +36,9 @@ import { ThoughtContext } from "../bots/thought";
 import { PersonBotView } from "../bots/PersonBot";
 import { readPersonBot } from "../bots/personBotCore";
 import {
-  EMPTY, atSubmit, backspace, canSend, draftOf, escape, filterBots, filterPeople, fromDraft, isEmptyDraft, pickBot, pickPerson, pickThing, pickTool, typed,
-  type BotRef, type MentionState, type Person, type Thing,
+  EMPTY, atSubmit, backspace, canSend, draftOf, escape, filterBots, filterCommands, filterPeople, fromDraft, isEmptyDraft, pickBot, pickCommand,
+  pickPerson, pickThing, pickTool, typed,
+  type BotRef, type Command, type MentionState, type Person, type Pick, type Thing,
 } from "./mentionCore";
 
 const INK = "#0a0a0a", META = "#5c5c5c", IDLE = "#8a8a8a", LINE = "#e6e6e6";
@@ -68,6 +75,13 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
   const tools: Array<{ id: string; label: string; action: ActionRef }> = Array.isArray(props?.tools) ? props.tools : [];
   const words = { people: "People", bots: "Share from a bot", empty: "Nothing here yet", ...(props?.words ?? {}) };
   const thingsPath = typeof props?.thingsPath === "string" ? props.thingsPath : "";
+  // What picking a bot from "/" means here: its things to share from (every build's own behaviour), or the bot itself
+  // (Talk's thread, where "/" names who the message goes to). Anything else is read as the default.
+  const pick: Pick = props?.pick === "bot" ? "bot" : "thing";
+  // Rows under the bots: names the screen keeps for itself ("/new"). Picking one types "/name " into the words.
+  const commands: Command[] = Array.isArray(props?.commands)
+    ? props.commands.filter((c: any) => c && typeof c.name === "string").map((c: any) => ({ name: String(c.name), line: typeof c.line === "string" ? c.line : undefined }))
+    : [];
 
   // The field, from what the screen's draft says (a box opened again with words in it).
   const [st, setSt] = useState<MentionState>(() => fromDraft(store.get(draftPath)));
@@ -87,13 +101,26 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
     if (json !== written.current) { written.current = json; store.set(draftPath, d); }
   };
 
-  // The screen cleared the draft (sent): the field empties itself, chips and all. Only a change that is not the field's
-  // own counts (a bot picked from "/" leaves the draft empty while its things are open).
+  /**
+   * THE DRAFT CHANGED FROM OUTSIDE THE FIELD: adopt it.
+   *
+   * Two things do that. The screen CLEARS it when a message is sent, and the field empties itself, chips and all. And
+   * the screen WRITES into it — the insert card's Paste puts the clipboard in the box (ask.ts), and before this the
+   * field never noticed: it owns its own words and only ever read the draft when that draft went empty, so pasting
+   * into Talk's bar silently did nothing.
+   *
+   * "From outside" is the whole rule, and it is exact: `written.current` is what this field last wrote, so anything
+   * else in the store came from somewhere else. The field's own writes never match it (a bot picked from "/" leaves
+   * the draft empty while its things are open, and that is still the field's own write, so nothing is adopted).
+   */
   const now = store.get(draftPath);
   useEffect(() => {
-    if (JSON.stringify(draftOf(fromDraft(now))) === written.current || !isEmptyDraft(now)) return;
-    written.current = JSON.stringify(draftOf(EMPTY));
-    setSt(EMPTY);
+    const fresh = fromDraft(now);
+    const json = JSON.stringify(draftOf(fresh));
+    if (json === written.current) return;
+    written.current = json;
+    // An open list belongs to the words that are being replaced, so it closes with them (fromDraft gives menu: null).
+    setSt(isEmptyDraft(now) ? EMPTY : fresh);
   });
 
   // A bot's things, fetched when it is picked.
@@ -156,15 +183,18 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
     );
   } else if (m?.kind === "bots") {
     const shown = filterBots(bots, m.query);
+    const cmds = filterCommands(commands, m.query);
     list = (
       <>
         {label(words.bots)}
-        {shown.map((b) => row(b.slug, () => update(pickBot(st, b)), (
+        {shown.map((b) => row(b.slug, () => update(pickBot(st, b, pick)), (
           <>
             <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: b.color || INK, marginHorizontal: 11 }} />
             {name(b.name)}
           </>
         )))}
+        {cmds.length > 0 && <View style={{ height: 1, backgroundColor: LINE, marginHorizontal: 12, marginVertical: 6 }} />}
+        {cmds.map((c) => row(`cmd:${c.name}`, () => { update(pickCommand(st, c)); input.current?.focus(); }, name(`/${c.name}`, c.line)))}
         {tools.length > 0 && <View style={{ height: 1, backgroundColor: LINE, marginHorizontal: 12, marginVertical: 6 }} />}
         {tools.map((t) => row(t.id, () => { update(pickTool(st)); void runAction(t.action, ctx); }, name(t.label)))}
       </>
@@ -214,6 +244,8 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
         <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, minHeight: 36 }}>
           {st.person && chip("person", st.person.name, () => update({ ...st, person: null }))}
           {st.thing && chip("thing", `${st.thing.title} · ${st.thing.botName}`, () => update({ ...st, thing: null }))}
+          {/* The bot the message goes to (pick "bot"): its name alone, so the chip reads as "to Plan Ease" and not as a thing. */}
+          {!st.thing && st.bot && chip("bot", st.bot.name, () => update({ ...st, bot: null }))}
           <TextInput
             ref={input}
             value={st.text}
@@ -229,7 +261,7 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
               focused.current = false;
               footer?.(false);
               // Left empty as the keyboard goes: the thought it is in closes (a moment later, unless it is back).
-              setTimeout(() => { if (!focused.current && !canSend(stRef.current) && !stRef.current.person && !stRef.current.menu) thought?.close(); }, 150);
+              setTimeout(() => { if (!focused.current && !canSend(stRef.current) && !stRef.current.person && !stRef.current.bot && !stRef.current.menu) thought?.close(); }, 150);
             }}
             onSubmitEditing={submit}
             submitBehavior="submit"
@@ -237,7 +269,7 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
             multiline
             autoFocus={props?.autoFocus === true}
             maxLength={maxLength}
-            placeholder={st.person || st.thing ? "" : String(props?.placeholder ?? "")}
+            placeholder={st.person || st.thing || st.bot ? "" : String(props?.placeholder ?? "")}
             placeholderTextColor={IDLE}
             style={[{ flexGrow: 1, minWidth: 80, maxHeight: 120, paddingVertical: 8, paddingHorizontal: 0, fontFamily: FACE, fontWeight: "normal", fontSize: 15, lineHeight: 20, color: INK }, WEB_FIELD]}
           />

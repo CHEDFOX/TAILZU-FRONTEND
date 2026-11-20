@@ -126,3 +126,15 @@ test("a screen that did not ask for `expr` has no kernel at all, so the object i
   const s = scope({ busy: true });
   assert.deepEqual(resolveValue({ $: "now()" }, s), { $: "now()" });
 });
+
+test('"\\@" is the character, not a catalog key: a screen can show an "@"', () => {
+  const s = scope({});
+  // Without the escape every server string beginning with "@" was looked up, and a miss blanked it: "@Mom", an email
+  // address and Talk's own "@" mark all came out as nothing (Renderer.tsx says the same about a node's props).
+  assert.equal(fillText("\\@", s), "@");
+  assert.equal(fillText("\\@Mom", s), "@Mom");
+  assert.equal(fillText("\\@ask.empty", s), "@ask.empty", "escaped, so the key it looks like is NOT read");
+  // The lookup itself is untouched.
+  assert.equal(fillText("@ask.empty", s), "Say what to do");
+  assert.equal(fillText("@nope", s), "");
+});

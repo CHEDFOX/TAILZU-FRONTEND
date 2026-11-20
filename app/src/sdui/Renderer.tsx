@@ -376,6 +376,11 @@ function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: Re
   let missingPolicy: string | null = null;
   for (const k of Object.keys(props)) {
     const v = props[k];
+    // THE ESCAPE, as fill.ts has for "$": "\@" is the character itself and is NOT looked up. A screen that means to
+    // SHOW an "@" — Talk's two marks, an email address, a username — had no way to say so, and every such string came
+    // out blank, because a key that is not in the catalog blanks the prop. The server's kit writes the backslash
+    // (experience/bots/kit.ts atText); a backslash before anything else is left alone, because people type backslashes.
+    if (typeof v === "string" && v.startsWith("\\@")) { props[k] = v.slice(1); continue; }
     if (typeof v === "string" && v.startsWith("@")) {
       const hit = ctx.labels[v.slice(1)];
       if (hit !== undefined) { props[k] = hit; continue; }
