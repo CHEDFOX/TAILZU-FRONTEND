@@ -12,6 +12,7 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { peekScreen, APP_VERSION } from "./client";
 import { ThemeContext } from "./theme/ThemeContext";
+import { ScreenSkeleton } from "./shell/ScreenSkeleton";
 import { typeRole } from "./theme/typeRole";
 import { useLiveUpdates } from "./live/live";
 import type { NavApi, PresentSpec } from "./actions";
@@ -239,6 +240,20 @@ export default function SduiApp() {
   useBlipPhase({ phase, shown, screenError });
 
   /**
+   * IS WHAT IS ON SCREEN THE SCREEN THAT WAS TAPPED? When the target is not cached, `shown` above deliberately keeps
+   * drawing the PREVIOUS one until the fetch lands. That is a real choice between two bad options — a stale screen or
+   * a blank — and it picked the better of the two. There is a third that beats both: the SHAPE of the screen that is
+   * coming (shell/ScreenSkeleton.tsx).
+   *
+   * Leaving the old screen up means the tap changes nothing at all for as long as the fetch takes, so it reads as not
+   * having registered — which is why a person presses it again — and then the screen jumps. A vessel answers in the
+   * same frame and is replaced by something its own size.
+   *
+   * Only while there is no error: a retry card is an answer, and must not be covered by the promise of one.
+   */
+  const vessel = phase === "ready" && !!current && !screenError && shown?.screenId !== current.screenId;
+
+  /**
    * THE IDENTITY OF WHAT IS ON SCREEN — which is not always what the stack
    * points at, and that difference was a bug for as long as it existed.
    *
@@ -445,7 +460,9 @@ export default function SduiApp() {
       {!hideHeader && <Header canGoBack={canGoBack} nav={nav} theme={theme} shown={shown} />}
 
       <View style={{ flex: 1 }}>
-        {shown ? (
+        {vessel ? (
+          <ScreenSkeleton ink={theme.color.text ?? color("app.color.text", "#0A0A0A")} bg={theme.color.bg ?? color("app.color.bg", "#FFFFFF")} />
+        ) : shown ? (
           <ThemeContext.Provider value={theme}>
             {/*
               KEYED BY SCREEN. Without this React keeps the same component
