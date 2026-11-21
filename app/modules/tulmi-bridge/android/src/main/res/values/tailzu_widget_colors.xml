@@ -13,13 +13,14 @@
     <color name="tailzu_widget_ground">#FFFFFF</color>
     <!-- Titles, a primary button's fill, the needs-you mark, the week's beads. -->
     <color name="tailzu_widget_ink">#0A0A0A</color>
-    <!-- Meta text: times, tags, a label. -->
-    <color name="tailzu_widget_meta">#5C5C5C</color>
+    <!-- Meta text: times, tags, a label. 9:1 on the worse of ground and surface (it was #5C5C5C, 6.1:1 on the surface grey). -->
+    <color name="tailzu_widget_meta">#434343</color>
     <!--
-      Idle icons, a stage still to come. Words are set in it (the stage bar's names), so it keeps 4.5:1 on the ground and on
-      the surface grey: #6E6E6E is 5.1:1 on white (it was #8A8A8A, 3.4:1, which read as faded).
+      Idle icons, a stage still to come. Words are set in it (the stage bar's names), so it is held at AAA rather than the
+      AA floor: #535353 is 7.1:1 on the worse of the ground and the surface grey. #6E6E6E cleared 4.5:1 and still read as
+      faded on a widget, which is small, glanced at, and often dimmed.
     -->
-    <color name="tailzu_widget_dim">#6E6E6E</color>
+    <color name="tailzu_widget_dim">#535353</color>
     <!--
       Hairlines between rows, a card's outline, the stage bar's track. A widget is read at a glance, over a wallpaper
       and often dimmed, so the app's own full-screen hairline was not there at all: #A7A7A7 is 2.4:1 on white (it was
