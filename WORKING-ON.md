@@ -1,5 +1,118 @@
 # Being built right now (read before you start)
 
+## 20 Nov: TALK IS THE APP NOW — what this renderer had to learn for it
+
+The server side is TAILZU-BACKEND/docs/talk-door.md: the app opens on `bots.talk`, one thread every bot answers in,
+"/" naming a bot and "@" naming a person. Almost all of it is server data. Two things were NOT, and both are here:
+
+**1. `MentionField` learned `pick: "bot"` and `commands`** (capability **`MentionCommands`**, declared in the registry).
+Today "/" then a bot opens that bot's THINGS to share, which is what a space's composer is for. Talk's "/" means the
+opposite — it names the bot the message GOES TO — so the bot itself becomes the chip and **nothing is fetched**. One
+field and one gesture, because it is the same act; what differs is only what the pick means where it is used. A draft
+says the bot either way, and `thingId` is what tells the two apart, so the wire shape did not change. `commands` are
+rows under the bots for names the screen keeps for itself ("/new"); picking one types `/name ` into the words, so what
+is sent is exactly what could have been typed and nothing is held on the side.
+
+A build that does not declare the capability is sent **the plain message box**, which sends through the same door.
+Plain language is the whole way in there; the marks are faster, never the only way.
+
+**2. A literal "@" drew as NOTHING, and that is now fixed.** A prop (or an action's text) beginning with "@" is read as
+a key into the bootstrap's copy, and a key we do not have BLANKS it — so `@Mom`, an email address and Talk's own "@"
+mark all came out empty, silently. A leading `\@` is now the character itself and is never looked up, exactly as `$`
+is escaped in an action's text. The server writes the backslash (`experience/bots/kit.ts atText`). The window has the
+same escape in `sdui/theme.js`.
+
+Tests: `mentionCore.test.ts` (the bot chip, the draft round trip, backspace's order, the commands), `fill.test.ts`
+(the escape). The one `launch-motion` failure is the pre-existing one, checked by stashing.
+
+## 20 Nov: EVERY ACCOUNT HAS A USERNAME NOW, AND THE ABOUT YOU CARD ASKS FOR IT INSTEAD OF A NAME
+
+The first step towards adding people one at a time. Today the only way two people are connected is a space they share
+(`threads.ts` `contacts`/`looksKnown`/`messageable` all just walk `spaces.mine`), and the only ways to reach a person at all
+are an email invite and a space's code. A username is the identity both of those were standing in for.
+
+**It is given, not asked for.** Migration 0110 extends 0003's `handle_new_user()` trigger, so the name is there the moment the
+account row is — no account is ever without one, and adding by username has no "they haven't picked one yet" case to design
+around. The name is a word pair and a number (`jolly-heron-646`), never a running number: one in order would say how many
+accounts there are and let anyone walk them. The migration backfills everyone who signed in before it.
+
+**`usernames` is the ledger and the only place uniqueness is decided**: `held`, `reserved` (ours) and `freed`. A name given up
+is **never handed to anyone else** — a connection survives a change because it stores a user id, but a name typed into a message
+a year ago does not. Asking never says which of the three a name is, only that it is taken, so the ledger cannot be mapped.
+Checking is braked at 60 an hour the way codes are, because asking repeatedly is how a list of everyone would be made.
+
+**The card has no "Not now" any more, and still cannot lock the app.** That promise was load-bearing in `aboutCard.ts` (App
+Review 5.1.1(v): an app may not require personal information to work), and the thing that keeps it true now is that **Save is
+always tappable**: the username is already filled and already valid, and the gender is still optional. A Save greyed out until a
+gender is picked would be a gate on personal information with no way past, and that is the version that gets rejected. There are
+no longer two ways out, but there is always one.
+
+**It keeps its own dueness flag** (`botsUsernameDone`), not `botsAboutSkipped`. Everyone who ever tapped "Not now" on the old
+name-and-gender card has that one set, and keying this card on it would mean those people never saw their username at all.
+
+The card no longer asks for a real name, so the Apple special case is gone with it (there is nothing to leave out when the name
+is ours to give). What someone is **called** is still to come: that is per-viewer, the way a phone's contacts are, and it needs
+`person_names` and a resolve at read time — `sender_name` has to stay as it is, because `viewOf` reads it back off the messages
+of a deleted account.
+
+Verified against a real Postgres 16, not just read: the migration runs clean twice, the trigger gives a new account a name, the
+backfill reaches one made before it, a freed name is refused to everyone, and a reserved one is refused. That run caught a real
+bug — `'x0'` and `'me'` are two characters and **violate the table's own CHECK**, so the reserved-words insert would have failed
+the whole migration.
+
+12,670 pass. The two failures are both unrelated and were checked by stashing: `launch-motion`'s side-by-side case (which
+fails stashed too, as it has been), and `web-browser`'s "Chrome is not even started for it", which counts the machine's Chrome
+processes and so races the reaping of the ones the cases before it killed — stashed, it failed two runs in three.
+
+docs/social.md now holds the whole design this is the first step of: the username, the name you give someone
+(`person_names`, per reader), adding by username, a group whose admin has **no** automatic access to anyone's things, what "@"
+means (a mention inside a group, to that person alone anywhere else), one Share action routing between the two share
+mechanisms that already exist, and the three decisions the feed must not get wrong. It says which parts are built and which
+are planned, and the order to build them in. **Read it before starting any of them**, especially the two rules that must not
+be broken: a username is never given twice, and `to_id`'s visibility rule keeps being applied forever however "@" behaves.
+
+docs/username.md. Still to come: `person_names` (the name you give someone, resolved per reader), adding by username, and `@`
+taking either a username or the name you gave them.
+
+## 20 Nov: A CONDITION'S PATH IS BARE — the blank set screen, and the lint that now says so
+
+Lingo's set screen drew NOTHING. Not an empty state: a blank page with a header and the ask bar.
+
+Both clients prefix a condition's path themselves — `resolveValue(`$state.${cond.eq[0]}`, ctx)` — so a path that
+arrives already carrying `$state.` is looked up as **`$state.$state.i`**, comes back undefined, and the node
+hides. The set screen puts every exercise behind `eq: ["i", <n>]`, so with the prefix on, every one of them was
+hidden and the body was empty. Nothing throws, nothing logs, and the code reads perfectly.
+
+It was already doing damage before today: the three verdict lines in `markRow` ("right", and the two that word
+the grader's reason) have carried `eq: ["$state.mark.mark.verdict", …]` since they were written, so **nobody has
+ever seen the verdict line after answering**. Four conditions in that file, all wrong the same way; every other
+screen in the kit writes them bare.
+
+**`lint.ts` now refuses a condition path that starts with `$state.`**, so no screen can be written this way again
+— and since the kit's own check runs over every screen in the tests, it is caught before a build, not after a
+deploy. My own test had pinned the broken shape, which is how it passed CI: it now asserts the bare path and that
+the prefixed form appears nowhere.
+
+12,695 pass. No other screen tripped the new rule.
+
+## 20 Nov: LINGO HAD NO LESSONS BECAUSE THE DATABASE WAS THREE MIGRATIONS BEHIND
+
+Not the code. **0105, 0106 and 0107 had never run against the live database** — today's deploy log shows all three
+pending and passing. 0107 is the one that adds `lingo_items.unit` and creates `lingo_lessons`, so every unit ever
+written was filed by an insert naming a column that did not exist, inside a `.catch(() => 0)`. It failed, silently,
+every time, while the screen said there was nothing to learn. Nobody could have seen it from the app.
+
+**The catch says so now.** A unit that cannot be filed ends that course, so it is logged with the pair and the unit
+and nothing of anybody's words. The same for a unit that could not be MADE: `unitFor` returned a bare null whether
+the model was down, refused for budget, or came back too thin, and all three draw the same empty screen.
+
+**And the cheap tier writes it now, not the strong one.** A unit is eight to fourteen pairs of a word and what it
+means; deepseek-v4.1-flash or gemini-2.5-flash does that as well as sonnet and far faster, which is what matters
+when somebody is watching the first-lesson screen or a celebration holding back its Continue. It also had no
+business being expensive: the worst case was about 320 paise against a 400 cap — four fifths of the budget, with
+silence the moment it tipped over — and is now roughly 90.
+
+12,695 pass; the standing two fail as always.
 ## 20 Nov: PLAN EASE — THE WEEK STRIP IS SWIPED ON A PHONE (and `ScrollX`, a new ability)
 
 The strip was seven cells sharing the width and two arrows, and it could not be anything else from here: the kit's
