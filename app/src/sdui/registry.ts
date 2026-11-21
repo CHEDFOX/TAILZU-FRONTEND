@@ -138,6 +138,12 @@ export const CORE_COMPONENTS = [
    */
   "LiveView", "Outbox",
   /**
+   * A real site, signed in on this phone in a WebView that keeps it, and read here (SiteView.tsx, siteViewCore.ts):
+   * the server draws the site's own sign-in with it, and unseen reads of a connected site, only for a build that says
+   * this. Nothing of the session leaves the phone: what goes back is a host name, or a page's words. types.ts 3e.
+   */
+  "SiteView",
+  /**
    * NOT A COMPONENT — pull to refresh with a bot in it (types.ts PULL_BOT_CAPABILITY): a screen's `pullBot` turns it on
    * for the top, the bottom or both of its Screen (PullBot.tsx, pullBotCore.ts). The server sends it only to a bundle
    * that says this.

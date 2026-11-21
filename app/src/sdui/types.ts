@@ -439,6 +439,8 @@ export type UploadPick = "photo" | "screenshot" | "video" | "file" | "camera";
  */
 export const LIVE_VIEW_COMPONENT = "LiveView";
 export const OUTBOX_CAPABILITY = "Outbox";
+/** A real site signed in on this phone and read here (SiteView.tsx): onComplete { site, url } after a sign-in, onResult with a read. */
+export const SITE_VIEW_COMPONENT = "SiteView";
 
 export type BotTileKind = "code" | "keybot" | "plan" | "travel" | "notes" | "make" | "custom";
 

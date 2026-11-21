@@ -29,7 +29,7 @@ export const VOCAB1_TYPES: readonly string[] = [
   // puts a peek on Home.
   "BotTiles", "BotCard", "BotBuddy", "BotPeek", "BlipWalkOut",
   "WriteOn", "LiveMark", "HeadBar",
-  "LiveView",
+  "LiveView", "SiteView",
   "BotStage", "BotCrowd", "Vanish", "MentionField", "LiveWords",
   "PersonBot",
 ];

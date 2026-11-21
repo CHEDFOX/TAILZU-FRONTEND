@@ -22,6 +22,7 @@ import { VoiceToggle } from "./morphControls";
 import { Rise } from "./Rise";
 import { MorphOut } from "./MorphOut";
 import { LiveView } from "./LiveView";
+import { SiteView } from "./SiteView";
 import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "../../auth/sdui";
 import { OnboardStage } from "../../onboard/OnboardStage";
 import { BlipSpot } from "../../onboard/BlipSpot";
@@ -75,6 +76,8 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   WriteOn, LiveMark: LiveMarkNode, HeadBar,
   // A running page or artifact, sandboxed (LiveView.tsx).
   LiveView,
+  // A real site, signed in on this phone and read here: the session never leaves it (SiteView.tsx).
+  SiteView,
   // Spaces, the family redesign (types.ts 3i): a bot with a thought, a crowd of tiny bots, a row that vaporises, a message
   // field with @ and /, and the words of a voice session as they are heard.
   BotStage, BotCrowd, Vanish, MentionField, LiveWords,
