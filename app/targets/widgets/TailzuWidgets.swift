@@ -53,32 +53,35 @@ struct X0Palette {
   let meta: Color
   /// A stage still to come, idle things. Words are set in it, so it holds 4.5:1 on its ground (5.1:1 light, 5.7:1 dark).
   let dim: Color
-  /// Hairlines between rows, a secondary button's border, an empty track.
+  /// Hairlines between rows, a card's edge, an empty track. 2.4:1 on its ground: a widget is read at a glance, over a
+  /// wallpaper, often dimmed, and the old #E6E6E6 / #262626 (1.3:1) was the app's full-screen hairline, which was not
+  /// there at all at this size. Kept to a hairline's 2.4:1 rather than a boundary's 3:1 because it does both jobs here.
   let line: Color
   /// An avatar's ground, the Ask bar's.
   let surface: Color
-  /// A secondary button's border.
+  /// A secondary button's border: a control boundary, so 3:1 (WCAG 1.4.11). Was 1.5:1.
   let outline: Color
-  /// The week's open bead.
+  /// The week's open bead, a stage still to come. It CARRIES MEANING — open against filled IS the information — so it
+  /// is held at 3.8:1, above the boundary floor rather than at it. Was 1.7:1 and read as nothing.
   let hollow: Color
   /// A dark ground: the mark sits on its white tile, a bot's colour is lifted.
   let onDark: Bool
 
   static let light = X0Palette(
     ground: Color(rgb: 0xFFFFFF), ink: Color(rgb: 0x0A0A0A), meta: Color(rgb: 0x5C5C5C),
-    dim: Color(rgb: 0x6E6E6E), line: Color(rgb: 0xE6E6E6), surface: Color(rgb: 0xF5F5F5),
-    outline: Color(rgb: 0xD4D4D4), hollow: Color(rgb: 0xC9C9C9), onDark: false)
+    dim: Color(rgb: 0x6E6E6E), line: Color(rgb: 0xA7A7A7), surface: Color(rgb: 0xF5F5F5),
+    outline: Color(rgb: 0x949494), hollow: Color(rgb: 0x828282), onDark: false)
 
   static let dark = X0Palette(
     ground: Color(rgb: 0x0A0A0A), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
-    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x262626), surface: Color(rgb: 0x171717),
-    outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
+    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x4F4F4F), surface: Color(rgb: 0x171717),
+    outline: Color(rgb: 0x5D5D5D), hollow: Color(rgb: 0x6D6D6D), onDark: true)
 
   /// The Dynamic Island: always black.
   static let island = X0Palette(
     ground: Color(rgb: 0x000000), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
-    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x2C2C2C), surface: Color(rgb: 0x171717),
-    outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
+    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x4B4B4B), surface: Color(rgb: 0x171717),
+    outline: Color(rgb: 0x5A5A5A), hollow: Color(rgb: 0x696969), onDark: true)
 
   /// THE SERVER'S PALETTE, READ AGAIN. iOS stopped reading the server's colours when the palette went native; Android never
   /// did, so one knob could move the two apps apart. Now there is one source again, tried in order:

@@ -20,14 +20,21 @@
       the surface grey: #6E6E6E is 5.1:1 on white (it was #8A8A8A, 3.4:1, which read as faded).
     -->
     <color name="tailzu_widget_dim">#6E6E6E</color>
-    <!-- Hairlines between rows, a secondary button's border, a card's outline, the stage bar's track. -->
-    <color name="tailzu_widget_line">#E6E6E6</color>
+    <!--
+      Hairlines between rows, a card's outline, the stage bar's track. A widget is read at a glance, over a wallpaper
+      and often dimmed, so the app's own full-screen hairline was not there at all: #A7A7A7 is 2.4:1 on white (it was
+      #E6E6E6, 1.3:1). Held to a hairline's 2.4:1, not a boundary's 3:1, because 48 of its uses are rules.
+    -->
+    <color name="tailzu_widget_line">#A7A7A7</color>
     <!-- An avatar's ground, a shortcut icon's disc, the X0 widget's tiles, Ask and chips. -->
     <color name="tailzu_widget_surface">#F5F5F5</color>
-    <!-- The X0 widget's open week bead. -->
-    <color name="tailzu_widget_hollow">#C9C9C9</color>
-    <!-- The X0 widget's secondary answer: a capsule's 1dp ring. -->
-    <color name="tailzu_widget_outline">#D4D4D4</color>
+    <!--
+      The X0 widget's open week bead. Open against filled IS the information, so it is held above the boundary floor:
+      #828282 is 3.8:1 on white (it was #C9C9C9, 1.7:1, which read as no bead at all).
+    -->
+    <color name="tailzu_widget_hollow">#828282</color>
+    <!-- The X0 widget's secondary answer: a capsule's 1dp ring. A control boundary, so 3:1 (it was #D4D4D4, 1.5:1). -->
+    <color name="tailzu_widget_outline">#949494</color>
 
     <!--
       The X0 picker preview's sample bots, Code bot and Travel bot, in their own colours (backend bots/art.ts); a touch lighter
