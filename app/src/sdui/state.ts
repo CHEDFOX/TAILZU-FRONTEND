@@ -75,13 +75,6 @@ export class Store {
   }
 }
 
-/** Re-render the calling component whenever the store changes. */
-export function useStoreVersion(store: Store): number {
-  const [, force] = useState(0);
-  useEffect(() => store.subscribe(() => force((n) => n + 1)), [store]);
-  return store.version;
-}
-
 /**
  * RE-RENDER ONLY WHEN SOMETHING THIS NODE READS CHANGES (pure/SPEC.md 2.2, "Dependency tracking").
  *

@@ -140,9 +140,6 @@ export function stopDeviceFacts(): void {
   started = false;
 }
 
-/** Re-read the permission facts now (after a primed card answered, or a screen opened). */
-export function refreshDevicePerms(): Promise<void> { return readPerms(); }
-
 /** Mount once inside the SafeAreaProvider: feeds device.insets, which follows rotation. Draws nothing. */
 export function FactsInsetsSync(): React.ReactElement | null {
   const i = useSafeAreaInsets();

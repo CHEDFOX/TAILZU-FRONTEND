@@ -17,9 +17,6 @@
 
 import { BLOCKS, type BlockName, FUNCTION_NAMES, LIMITS, VOCAB, isBlock, missingBlocks } from "../kernel/index.ts";
 
-/** The field a screen states its blocks in (SPEC 2.12: the server's `needs(screen)` writes it). */
-export const NEEDS_KEY = "needs";
-
 /** The blocks a screen says it needs, in the kernel's own order, with anything that is not a block name kept as it is. */
 export function screenNeeds(screen: unknown): string[] {
   const raw = (screen as { needs?: unknown } | null | undefined)?.needs;

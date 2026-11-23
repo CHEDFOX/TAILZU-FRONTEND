@@ -2,7 +2,7 @@
  * B10 data half (`data` block, pure SPEC 2.10): callEndpoint's new options and `subscribe`. OFF unless a screen states it needs `data` and
  * this client declared it: V1 calls `registerData(registry)` and maps the action's keys onto the options below.
  */
-import { ENDPOINT_LIMITS, type CallOptions } from "../client/endpointCore";
+import { ENDPOINT_LIMITS } from "../client/endpointCore";
 import { SPEC as SUBSCRIBE_SPEC, SUBSCRIBE_LIMITS, bindSubscribeHost, subscribeEvent, type SubscribeHost } from "../live/subscribe";
 
 export { callEndpoint, clearCallCache } from "../client/endpoint";
@@ -32,4 +32,3 @@ export function registerData(registry: DataRegistry): void {
 }
 
 export type { SubscribeHost };
-export type ActionOptions = CallOptions;
