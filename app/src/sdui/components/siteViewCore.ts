@@ -37,19 +37,54 @@ export interface SiteViewProps {
 }
 
 const MAX_SCRIPT = 20_000;
-const isHttp = (u: string): boolean => /^https?:\/\//i.test(u);
+/** Only https: a SiteView keeps the person's cookies, and a page over http could be anyone's. */
+const isHttps = (u: string): boolean => /^https:\/\//i.test(u);
+
+/**
+ * The sign-in pages a site may hand off to besides itself (Google's and Apple's), compiled in: a sign-in may go there,
+ * a read never does, and no screen can add another.
+ */
+export const SIGN_IN_HANDOFFS: readonly string[] = Object.freeze(["accounts.google.com", "appleid.apple.com"]);
+
+const hostOfUrl = (u: string): string => {
+  try { return new URL(u).hostname.toLowerCase().replace(/\.$/, ""); } catch { return ""; }
+};
+
+/** A name a site owns as a whole ("swiggy.com", "flipkart.co.in"), not a public suffix ("com", "co.in"). */
+function ownable(h: string): boolean {
+  const labels = h.split(".");
+  if (labels.length < 2 || labels.some((l) => !l)) return false;
+  const generic = ["co", "com", "org", "net", "gov", "ac", "edu"];
+  return !(labels.length === 2 && labels[1].length === 2 && generic.includes(labels[0]));
+}
+
+/**
+ * Is `h` the same site as the page's own host: that host, one of its subdomains, or the name the site owns that the host
+ * is under (www.swiggy.com is swiggy.com's)? A screen that names any other host is refused, so a SiteView can only ever
+ * be the site it opens on.
+ */
+export function sameSite(h: string, pageHost: string): boolean {
+  if (!h || !pageHost) return false;
+  return h === pageHost || h.endsWith(`.${pageHost}`) || (pageHost.endsWith(`.${h}`) && ownable(h));
+}
 
 /** The node's props, or null: a SiteView that cannot say where it is or what it may do draws nothing. */
 export function siteViewOf(p: Record<string, unknown> | null | undefined): SiteViewProps | null {
   if (!p) return null;
   const mode = p.mode === "read" ? "read" : p.mode === "signin" ? "signin" : null;
-  const url = typeof p.url === "string" && isHttp(p.url) ? p.url : "";
+  const url = typeof p.url === "string" && isHttps(p.url) ? p.url : "";
   const site = typeof p.site === "string" ? p.site.trim().toLowerCase() : "";
   const hosts = Array.isArray(p.hosts) ? p.hosts.filter((h): h is string => typeof h === "string" && /^[a-z0-9.-]+$/i.test(h)).map((h) => h.toLowerCase()) : [];
   const s = (p.scripts ?? {}) as Record<string, unknown>;
   const ok = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_SCRIPT;
   if (!mode || !url || !site || !hosts.length || !ok(s.shape) || !ok(s.findLogin) || !ok(s.read)) return null;
-  const home = typeof p.home === "string" && isHttp(p.home) ? p.home : undefined;
+  // The page it starts on, the name shown, and every host it may go to are one site; a sign-in may also hand off to
+  // Google's or Apple's sign-in, and nothing else. A screen that pairs a site with someone else's host draws nothing.
+  const pageHost = hostOfUrl(url);
+  if (!sameSite(site, pageHost)) return null;
+  if (!hosts.every((h) => sameSite(h, pageHost) || (mode === "signin" && SIGN_IN_HANDOFFS.includes(h)))) return null;
+  if (!hosts.some((h) => sameSite(h, pageHost)) || !hostAllowed(url, hosts)) return null;
+  const home = typeof p.home === "string" && isHttps(p.home) && hostAllowed(p.home, hosts) && sameSite(hostOfUrl(p.home), pageHost) ? p.home : undefined;
   return { mode, url, site, hosts, scripts: { shape: s.shape, findLogin: s.findLogin, read: s.read }, ...(home ? { home } : {}) };
 }
 
@@ -63,7 +98,7 @@ export function hostAllowed(url: string, hosts: string[]): boolean {
   let h = "";
   try {
     const u = new URL(url);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    if (u.protocol !== "https:") return false;
     h = u.hostname.toLowerCase().replace(/\.$/, "");
   } catch { return false; }
   return hosts.some((a) => h === a || h.endsWith(`.${a}`));

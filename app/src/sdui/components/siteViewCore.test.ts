@@ -22,6 +22,25 @@ test("props: a whole one is taken, and anything missing is no SiteView at all", 
   assert.strictEqual(siteViewOf({ ...PROPS, home: "https://www.swiggy.com/" })?.home, "https://www.swiggy.com/");
 });
 
+test("props: https only, and the page, the name shown and every host are one site (a sign-in may also hand off to Google or Apple)", () => {
+  assert.strictEqual(siteViewOf({ ...PROPS, url: "http://www.swiggy.com/auth" }), null, "http is refused");
+  assert.strictEqual(siteViewOf({ ...PROPS, home: "http://www.swiggy.com/" })?.home, undefined, "an http home is dropped");
+  assert.strictEqual(siteViewOf({ ...PROPS, home: "https://bank.example/" })?.home, undefined, "a home on another site is dropped");
+  // A read of one site's page with another site's hosts: the injected script would run in the bank's signed-in session.
+  const READ = { mode: "read", url: "https://bank.example/", site: "shop.example", hosts: ["bank.example"], scripts: SCRIPTS };
+  assert.strictEqual(siteViewOf(READ), null, "the name shown is not the page's site");
+  assert.strictEqual(siteViewOf({ ...READ, site: "bank.example", url: "https://shop.example/" }), null, "the page is not on its hosts");
+  assert.strictEqual(siteViewOf({ ...PROPS, hosts: ["swiggy.com", "mail.google.com"] }), null, "a host that is neither the site nor a sign-in hand-off");
+  assert.strictEqual(siteViewOf({ mode: "read", url: "https://www.swiggy.com/orders", site: "swiggy.com", hosts: ["swiggy.com", "accounts.google.com"], scripts: SCRIPTS }), null, "a read never hands off");
+  assert.strictEqual(siteViewOf({ ...PROPS, url: "https://www.swiggy.co.in/", site: "www.swiggy.co.in", hosts: ["co.in"] }), null, "a public suffix is not a site");
+  assert.strictEqual(siteViewOf({ ...PROPS, hosts: ["com"] }), null);
+  // What the server sends today still opens.
+  assert.ok(siteViewOf({ mode: "read", url: "https://www.swiggy.com/orders", site: "swiggy.com", hosts: ["swiggy.com"], scripts: SCRIPTS }));
+  assert.ok(siteViewOf({ ...PROPS, hosts: ["swiggy.com", "accounts.google.com", "appleid.apple.com"] }));
+  assert.ok(siteViewOf({ mode: "read", url: "https://www.flipkart.co.in/x", site: "flipkart.co.in", hosts: ["flipkart.co.in"], scripts: SCRIPTS }));
+  assert.ok(!hostAllowed("http://www.swiggy.com/", ["swiggy.com"]), "the page may not go to http either");
+});
+
 test("where the page may go: the site and its sign-in hand-offs, and nowhere else", () => {
   const h = ["swiggy.com", "accounts.google.com"];
   assert.ok(hostAllowed("https://www.swiggy.com/auth", h));
