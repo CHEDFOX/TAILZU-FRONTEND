@@ -1118,10 +1118,12 @@
       "requestReview",
       "openSettings"
     ],
+    "deeplink.screenParams": {},
     "deeplink.screenPrefixes": [
       "s",
       "screen"
     ],
+    "deeplink.screens": [],
     "desktop.agent.approveCallMs": 25000,
     "desktop.agent.askOpensMic": false,
     "desktop.agent.browsers": [],

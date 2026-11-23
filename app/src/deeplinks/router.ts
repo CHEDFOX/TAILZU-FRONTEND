@@ -10,10 +10,14 @@
  *   tulmi://action?kind=iap.restore  → run a bare action (rare)
  *
  * Path shape is small on purpose so backend can generate share/email/push
- * URLs without a client update.
+ * URLs without a client update. Which screens a link may open, and with which
+ * params, is linkScreensCore.ts (the server can widen it: deeplink.screens,
+ * deeplink.screenParams).
  */
 import * as Linking from "expo-linking";
-import { list, str } from "../sdui/knobs";
+import { list, obj, str } from "../sdui/knobs";
+import { transientScreenIds } from "../sdui/shell/transientScreens";
+import { linkScreen } from "./linkScreensCore";
 import { isScreenId } from "../security";
 import { readAuthLink, type AuthLink } from "../auth/linkState";
 
@@ -54,10 +58,20 @@ export function parseLink(url: string): LinkTarget {
     if (auth) return auth;
 
     // A screen id as the server writes them, or nothing: a link from anywhere
-    // must not hand the renderer "../" or markup as an id.
+    // must not hand the renderer "../" or markup as an id. And only a screen
+    // meant to be linked to, with only the params its links carry
+    // (linkScreensCore.ts): any web page can open tulmi://.
     if (list<string>("deeplink.screenPrefixes", ["s", "screen"]).includes(parts[0])) {
       const screenId = parts[1];
-      if (isScreenId(screenId)) return { kind: "screen", screenId, params: q };
+      if (isScreenId(screenId)) {
+        const screens = list<string>("deeplink.screens", []);
+        const open = linkScreen(screenId, q, {
+          screens: screens.length ? screens : undefined,
+          params: obj<Record<string, string[]>>("deeplink.screenParams", {}),
+          transient: transientScreenIds(),
+        });
+        if (open) return { kind: "screen", screenId: open.screenId, params: open.params };
+      }
     }
     if (parts[0] === str("deeplink.actionPrefix", "action") && typeof q.kind === "string" && q.kind) {
       return { kind: "action", actionKind: q.kind, params: q };

@@ -143,7 +143,7 @@ mid-open, two taps, the warm-up still opening, the app going behind something wh
 | Live Activities | `targets/widgets/BotsActivity.swift`, `FlowActivity.swift`, `SetupActivity.swift`; started from `modules/tulmi-bridge/ios/*LiveActivity.swift`; JS side `src/widgets/glance.ts`, `src/widgets/flow.ts` |
 | Live updates (screens refreshed from another device) | `src/sdui/live/` |
 | Offline page and outbox | `src/sdui/offline/` |
-| Deep links | `src/deeplinks/router.ts`; handled in `shell/hooks/useStartup.ts`; allowed bare actions in `useDeepLinkActions.ts` |
+| Deep links | `src/deeplinks/router.ts`; which screens a link from outside may open, and only the params their links carry (an allow-list of every screen the backend, the widgets, quick actions, keyboards and desktop write into a `tulmi://screen/` link; the server can replace it with `deeplink.screens` / `deeplink.screenParams`) in `linkScreensCore.ts` + `.test.ts`; handled in `shell/hooks/useStartup.ts`; allowed bare actions in `useDeepLinkActions.ts` |
 | Push notifications | `src/notifications/` |
 | Share-in | `src/share/`, `modules/tulmi-share/`, `targets/share/` |
 | Telemetry (Sentry, PostHog, Meta on Android only) | `src/telemetry/`; started in `shell/hooks/useStartup.ts`. Meta ships on Android alone: `plugins/withNoMetaIos.js` and `package.json`'s `expo.autolinking.ios.exclude` keep the SDK, the tracking prompt and every Facebook key out of the iPhone binary, and `meta.ts` leaves at once on iOS |
