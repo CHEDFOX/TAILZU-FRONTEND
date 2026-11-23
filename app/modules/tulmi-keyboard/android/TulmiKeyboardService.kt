@@ -1217,7 +1217,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         pendingPartial = ""
         dictatedSomething = false
         dictatedText = ""
-        priorText = (currentInputConnection?.getTextBeforeCursor(refineContextChars(), 0)?.toString() ?: "")
+        // A field that asked not to be learned from (an incognito tab) is not read for context either.
+        priorText = if (kbState.unlearned) "" else
+            (currentInputConnection?.getTextBeforeCursor(refineContextChars(), 0)?.toString() ?: "")
         streaming = true
         kbState.dictating = true
         sduiRenderer?.stateChanged()
@@ -1441,7 +1443,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (kbState.secured) return
         if (!micPermitted()) return
         val contextChars = knobInt("kb.dictation.contextChars", 600).coerceAtLeast(0)
-        uploadContext = if (contextChars == 0) "" else
+        uploadContext = if (contextChars == 0 || kbState.unlearned) "" else
             (currentInputConnection?.getTextBeforeCursor(contextChars, 0)?.toString() ?: "").trim()
         try {
             // A file per recording: a quick restart records while the last one
@@ -1969,6 +1971,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // so no path can leave the keyboard believing a password box is still
         // focused and quietly refuse to work in the next ordinary field.
         kbState.secured = false
+        kbState.unlearned = false
         // …and what that field was: nothing describes a field no longer focused.
         fieldKind = null
         fieldLabel = null
@@ -2257,6 +2260,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
             else -> false
         }
+        // DOES IT ASK NOT TO BE LEARNED FROM? An incognito browser tab (and any
+        // field that sets IME_FLAG_NO_PERSONALIZED_LEARNING) is saying that what
+        // is typed there is not to be kept or sent anywhere it need not go. So,
+        // as for a password box, nothing around the caret goes with a dictation
+        // or a Refine of one, and the field's kind and label are not sent. The
+        // keys, dictation itself and Refine of the field (which the person asks
+        // for) still work.
+        kbState.unlearned = ((info?.imeOptions ?: 0) and
+            android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         if (numericField) {
             kbState.layoutId = "num"
         } else if (kbState.layoutId == "num") {
@@ -2277,7 +2289,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * nothing is sent from it (kbState.secured blocks that).
      */
     private fun refreshFieldInfo(info: EditorInfo?) {
-        if (info == null || kbState.secured) {
+        if (info == null || kbState.secured || kbState.unlearned) {
             fieldKind = null
             fieldLabel = null
             return

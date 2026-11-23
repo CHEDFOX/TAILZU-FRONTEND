@@ -134,7 +134,7 @@ mid-open, two taps, the warm-up still opening, the app going behind something wh
 | Purchases / paywall gate | `src/billing/purchases.ts`; the gate in `shell/hooks/useBootLoader.ts`; `iap.*` in `actions.ts` |
 | Keyboard ↔ app (mic handoff, Flow session) | `shell/hooks/useKeyboardEntry.ts`, `useFlowArming.ts`, `src/widgets/flow.ts`, `modules/tulmi-bridge/` |
 | iOS keyboard | `app/targets/keyboard/` (spec: `docs/keyboard-spec.md`) |
-| Android keyboard | `app/modules/tulmi-keyboard/android/` |
+| Android keyboard (a password box, `state.secured`: no suggestions, mic or Refine; a field that asks not to be learned from, IME_FLAG_NO_PERSONALIZED_LEARNING such as an incognito tab, `state.unlearned`: no text around the caret, field kind or label sent with a dictation) | `app/modules/tulmi-keyboard/android/` (`TulmiKeyboardService.kt` refreshReturnKeyLabel decides both) |
 | Widgets (iOS / Android) | `app/targets/widgets/` / `modules/tulmi-bridge/android/…/TailzuX0Widget.kt`; data from `src/widgets/` |
 | Widget lines that switch on their own (the glance's `steps`: a leave-by, then the next thing) | `src/widgets/glanceCore.ts` (`cleanSteps`, `glanceAt`, the rule), `targets/widgets/X0Glance.swift` (`asOf`, `X0Provider`), `modules/tulmi-bridge/android/…/X0Steps.kt` and `TailzuX0Widget.kt` (the step alarm) |
 | What only the binary can promise the server (PushTimeSensitive with the push token, GlanceSteps in the bootstrap and `steps=1` on the glance, VoiceRealtime for the live call) | `src/device/binaryCore.ts` (`binary.ts` reads the bridge's `binaryFeatures`, `TulmiBridgeModule.swift` / `.kt`); the Time Sensitive entitlement in `app.config.ts` |

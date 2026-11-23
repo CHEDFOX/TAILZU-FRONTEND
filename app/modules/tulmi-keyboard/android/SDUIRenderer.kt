@@ -108,6 +108,15 @@ class KBState(
      * mean to share, and a key that would be refused is better not drawn.
      */
     var secured: Boolean = false,
+    /**
+     * The focused field asked not to be learned from (EditorInfo
+     * IME_FLAG_NO_PERSONALIZED_LEARNING: an incognito tab, or any field that
+     * sets it). Typing and dictation still work, but nothing around the caret
+     * is read to go with them: no prior text for Refine of a dictation, no
+     * dictation context, no field kind or label. The person's own text is
+     * still sent when they ask for it (what they dictate, what they Refine).
+     */
+    var unlearned: Boolean = false,
     /** The space bar is being held as a trackpad (state.trackpadActive). */
     var trackpadActive: Boolean = false,
     /**
@@ -3992,6 +4001,7 @@ class SDUIRenderer(
             "hasMultipleKeyboards" -> s.hasMultipleKeyboards
             "primaryLanguage" -> s.primaryLanguage
             "secured" -> s.secured
+            "unlearned" -> s.unlearned
             "trackpadActive" -> s.trackpadActive
             "appearance" -> s.appearance
             "status" -> s.status
