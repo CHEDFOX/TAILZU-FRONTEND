@@ -18,6 +18,6 @@ export { LAST_BOOT_NOTE } from "./capabilities";
 export {
   peekBootstrap, markKnobsPrimed, primeKnobsFromDisk, bootstrap, expireBootstrap, bootstrapIsFresh, forgetAccountData,
 } from "./bootstrap";
-export { hydrateScreenCache, peekScreen, prefetchScreens, refreshCachedScreens, invalidateScreens, fetchScreen } from "./screens";
+export { hydrateScreenCache, peekScreen, prefetchScreens, refreshCachedScreens, invalidateScreens, fetchScreen, cacheKey as screenCacheKey, screenRequestKey } from "./screens";
 export { fetchAuthConfig, type AuthBackground } from "./signInConfig";
 export { callEndpoint } from "./endpoint";

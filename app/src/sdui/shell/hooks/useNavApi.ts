@@ -9,6 +9,7 @@ import { setMediaRegistry, pickMediaRegistry } from "../../../media/resolveMedia
 import type { NavItem, SetState, Ref } from "../types";
 import { applyDirection } from "../locale";
 import { transientScreenIds } from "../transientScreens";
+import { pushEntry, replaceEntry, tabForEntry } from "../navStack";
 
 /** The navigation every action and node drives: push, replace, back, switchTab, reloads, and the quiet refresh. */
 export function useNavApi({
@@ -25,15 +26,29 @@ export function useNavApi({
   setScreenError: SetState<string | null>;
   setBoot: SetState<BootstrapResponse | null>;
 }) {
-  const nav: NavApi = useMemo(
-    () => ({
+  const nav: NavApi = useMemo(() => {
+    const switchTab = (id: string) => {
+      cancelArrivalPrompt();
+      if (boot?.navigation.kind !== "tabs") return;
+      const tab = boot.navigation.tabs.find((t) => t.id === id);
+      if (!tab) return;
+      setTabId(id);
+      // Already standing on that tab's root: keep the stack as it is. A new array (a new top entry) re-ran the
+      // screen effect, so tapping the tab you are on refetched it and rebuilt the whole tree for nothing.
+      setStack((s) => (s.length === 1 && s[0].screenId === tab.screenId && !s[0].params && !s[0].present ? s : [{ screenId: tab.screenId }]));
+    };
+    return {
       // Any of these means the user is doing something, so a pending arrival
       // prompt is dropped rather than landing on top of it. The server will
       // ask again on a later launch; interrupting is the one thing it must
       // not do.
+      // Not always on top (shell/navStack.ts): a tab root becomes the tab switch it is, and a screen already on the
+      // stack is gone back down to rather than stacked again — or Back replays every tap instead of going up.
       push: (screenId, params, present) => {
         cancelArrivalPrompt();
-        setStack((s) => [...s, { screenId, params, present }]);
+        const tab = tabForEntry(boot?.navigation.kind === "tabs" ? boot.navigation.tabs : undefined, { screenId, params });
+        if (tab) { switchTab(tab); return; }
+        setStack((s) => pushEntry(s, { screenId, params, present }));
       },
       // Swap the top rather than stack on it. A linear flow — onboarding — is
       // a sequence of steps, not a place you browse: pushing left every step
@@ -42,7 +57,9 @@ export function useNavApi({
       // the only thing on the stack and there is nothing to go back to.
       replace: (screenId, params, present) => {
         cancelArrivalPrompt();
-        setStack((s) => (s.length ? [...s.slice(0, -1), { screenId, params, present }] : [{ screenId, params, present }]));
+        const tab = tabForEntry(boot?.navigation.kind === "tabs" ? boot.navigation.tabs : undefined, { screenId, params });
+        if (tab) { switchTab(tab); return; }
+        setStack((s) => replaceEntry(s, { screenId, params, present }));
       },
       back: () => {
         cancelArrivalPrompt();
@@ -60,14 +77,7 @@ export function useNavApi({
           return transient && home ? [{ screenId: home }] : s;
         });
       },
-      switchTab: (id) => {
-        cancelArrivalPrompt();
-        if (boot?.navigation.kind !== "tabs") return;
-        const tab = boot.navigation.tabs.find((t) => t.id === id);
-        if (!tab) return;
-        setTabId(id);
-        setStack([{ screenId: tab.screenId }]);
-      },
+      switchTab,
       reloadCurrent: () => setReload((n) => n + 1),
       // Pull-a-bot's refresh: the live updates' quiet reload (no spinner, the Store kept), swapped in once `until` settles.
       refreshQuietly: (until) => {
@@ -95,8 +105,7 @@ export function useNavApi({
           }
         })();
       },
-    }),
-    [boot, cancelArrivalPrompt],
-  );
+    };
+  }, [boot, cancelArrivalPrompt]);
   return nav;
 }

@@ -35,7 +35,8 @@ export function useScreenRefresh({ phase, boot }: { phase: Phase; boot: Bootstra
     const t = setTimeout(() => {
       void (async () => {
         if (ids.length) await prefetchScreens(ids);
-        await refreshCachedScreens();
+        // What the warm pass just fetched is fresh; only the rest (stale off disk, or reached with params) goes again.
+        await refreshCachedScreens({ skipFresh: true });
       })();
       // And say, out loud, whether an update is available. Silent update
       // machinery is how a week of published fixes reached nobody.

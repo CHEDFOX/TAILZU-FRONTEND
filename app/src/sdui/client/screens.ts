@@ -59,6 +59,7 @@ export async function hydrateScreenCache(cacheVersion: string): Promise<void> {
         const cacheK = k.slice(mine.length);
         // Only fill what the session has not already fetched fresh.
         if (!screenCache.has(cacheK)) {
+          requested.set(screen, cacheK);
           screenCache.set(cacheK, { at: 0, ttlMs: 1, screen });   // stale on arrival
         }
       } catch { /* one bad row must not cost the rest */ }
@@ -111,10 +112,27 @@ function unpersistScreens(cacheK?: string): void {
 type CacheEntry = { at: number; ttlMs: number; screen: ScreenResponse };
 export const screenCache = new Map<string, CacheEntry>();
 
-function cacheKey(screenId: string, params?: Record<string, any>): string {
+export function cacheKey(screenId: string, params?: Record<string, any>): string {
   return params && Object.keys(params).length
     ? `${screenId}::${JSON.stringify(params)}`
     : screenId;
+}
+
+/**
+ * WHICH REQUEST A SCREEN ANSWERS — its cacheKey, kept beside the object rather than read off it.
+ *
+ * The shell matched what it drew to the top of the stack by `screen.screenId`, which is wrong twice over:
+ *   - The same screen with other params (planHome's days, notes' filters, a mail bot's businesses — all
+ *     `replace: true` onto the same id) matched the OLD copy, so the previous day stayed up, tappable, under the
+ *     new one's key until the fetch landed: tap Tuesday, see Monday, tap a Monday row, land somewhere else.
+ *   - The server answers some requests with another id ("home" and the old ids are "bots.home", a Spaces page with
+ *     Spaces off is "bots.talk"), and that never matched at all, so the skeleton stayed up over a loaded screen.
+ */
+const requested = new WeakMap<ScreenResponse, string>();
+
+/** The cacheKey of the request this screen was fetched (or loaded from disk) for; undefined for any other object. */
+export function screenRequestKey(screen: ScreenResponse | null | undefined): string | undefined {
+  return screen ? requested.get(screen) : undefined;
 }
 
 /** A cached screen, fresh or stale, or null. `stale` says whether to revalidate. */
@@ -189,8 +207,11 @@ function cachedTargets(): Array<{ screenId: string; params?: Record<string, any>
  * Sequential and silent: background work must never compete with the screen
  * being looked at, and must never raise an error for a screen nobody asked for.
  */
-export async function refreshCachedScreens(): Promise<void> {
+export async function refreshCachedScreens(o: { skipFresh?: boolean } = {}): Promise<void> {
   for (const t of cachedTargets()) {
+    // The launch pass runs this straight after prefetchScreens, which has just fetched every warm screen: without
+    // this every one of them went over the network twice, in the first seconds, queued in front of the taps.
+    if (o.skipFresh && peekScreen(t.screenId, t.params)?.stale === false) continue;
     try { await fetchScreen(t.screenId, t.params); } catch { /* silent */ }
   }
 }
@@ -213,6 +234,7 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
     tzOffsetMinutes: -new Date().getTimezoneOffset(),
   };
   const screen = await withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
+  requested.set(screen, cacheKey(screenId, params));
   const ttl = Number(screen.cacheTtlSeconds ?? 0);
   if (Number.isFinite(ttl) && ttl > 0) {
     persistScreen(cacheKey(screenId, params), screen);

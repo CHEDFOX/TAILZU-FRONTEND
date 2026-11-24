@@ -20,6 +20,10 @@ export function useCurrentScreen({
   // silently keeping the previous (or empty) screen — the old behavior looked
   // identical to a successful empty render, which is what surfaced as "Home
   // and Settings are blank" in the field.
+  // Only whether we are OFFLINE re-runs the fetch. `online` starts null and turns true once the connection is first
+  // read — usually while the first screen is already loading — and depending on it directly threw that fetch away
+  // (alive = false) and started the same one again.
+  const offline = online === false;
   useEffect(() => {
     if (phase !== "ready" || !current) return;
     let alive = true;
@@ -31,15 +35,19 @@ export function useCurrentScreen({
       setScreen(cached.screen);
       setScreenError(null);
       // Fresh enough to trust — don't refetch at all.
-      if (!cached.stale || online === false) { setScreenLoading(false); return; }
+      if (!cached.stale || offline) { setScreenLoading(false); return; }
     }
     setScreenLoading(true);
     setScreenError(null);
     fetchScreen(current.screenId, current.params)
       .then((s) => {
         if (!alive) return;
-        setScreen(s);
         setScreenError(null);
+        // The revalidation came back with what is already on screen (the usual case for a stale cached copy): keep
+        // the object we have. A new one is a new Store (ScreenHost) — the field being typed in emptied and every
+        // toggle went back, a beat after arriving — and a rebuild of the whole tree, for a screen that did not change.
+        if (cached && sameScreen(cached.screen, s)) return;
+        setScreen(s);
       })
       .catch((err: unknown) => {
         if (!alive) return;
@@ -57,5 +65,11 @@ export function useCurrentScreen({
     return () => {
       alive = false;
     };
-  }, [phase, current, reload, online]);
+  }, [phase, current, reload, offline]);
+}
+
+/** Two copies of a screen that would draw the same thing. */
+function sameScreen(a: ScreenResponse, b: ScreenResponse): boolean {
+  if (a === b) return true;
+  try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
 }

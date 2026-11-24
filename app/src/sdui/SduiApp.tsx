@@ -8,9 +8,9 @@
  * their hooks are called), and the pieces it draws are in ./shell.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, BackHandler, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { peekScreen, APP_VERSION } from "./client";
+import { peekScreen, screenCacheKey, screenRequestKey, APP_VERSION } from "./client";
 import { ThemeContext } from "./theme/ThemeContext";
 import { ScreenSkeleton } from "./shell/ScreenSkeleton";
 import { typeRole } from "./theme/typeRole";
@@ -36,6 +36,7 @@ import { ToastView } from "./shell/ToastView";
 import { LaunchCardOverlay } from "./shell/LaunchCardOverlay";
 import { UpdateGateOverlay } from "./shell/UpdateGateOverlay";
 import { ScreenHost } from "./shell/ScreenHost";
+import { transientScreenIds } from "./shell/transientScreens";
 import { ConnectionScreen } from "./shell/ConnectionScreen";
 import { useArrivalPrompt } from "./shell/hooks/useArrivalPrompt";
 import { useStartup } from "./shell/hooks/useStartup";
@@ -66,6 +67,23 @@ import { SheetTree, ModalTree } from "./shell/blocks/trees";
 
 // At module load, before the first handshake is built: the handshake has to name the blocks that are really on.
 setupBlocks();
+
+/**
+ * Is `screen` the answer to this stack entry? By the request it was fetched for (client/screens.ts
+ * screenRequestKey), not by its screenId: the same id with other params is another screen, and the server may
+ * answer under another id ("home" is "bots.home"). A screen object the cache never saw falls back to its id.
+ */
+function answers(screen: ScreenResponse | null | undefined, item: NavItem | undefined): boolean {
+  if (!screen || !item) return false;
+  const req = screenRequestKey(screen);
+  return req !== undefined ? req === screenCacheKey(item.screenId, item.params) : screen.screenId === item.screenId;
+}
+
+/** The topmost stack entry `screen` answers, or -1. */
+function entryOf(stack: NavItem[], screen: ScreenResponse | null | undefined): number {
+  for (let i = stack.length - 1; i >= 0; i--) if (answers(screen, stack[i])) return i;
+  return -1;
+}
 
 /**
  * HOW A SCREEN COMES UP (pure/SPEC.md 2.10, the `shell` block).
@@ -232,7 +250,7 @@ export default function SduiApp() {
    */
   const shown = useMemo(() => {
     if (!current || phase !== "ready") return screen;
-    if (screen && screen.screenId === current.screenId) return screen;
+    if (answers(screen, current)) return screen;
     return peekScreen(current.screenId, current.params)?.screen ?? screen;
   }, [screen, current, phase]);
 
@@ -251,7 +269,7 @@ export default function SduiApp() {
    *
    * Only while there is no error: a retry card is an answer, and must not be covered by the promise of one.
    */
-  const vessel = phase === "ready" && !!current && !screenError && shown?.screenId !== current.screenId;
+  const vessel = phase === "ready" && !!current && !screenError && !answers(shown, current);
 
   /**
    * THE IDENTITY OF WHAT IS ON SCREEN — which is not always what the stack
@@ -280,10 +298,8 @@ export default function SduiApp() {
   const shownKey = useMemo(() => {
     const id = shown?.screenId ?? "";
     if (!id) return "";
-    for (let i = stack.length - 1; i >= 0; i--) {
-      if (stack[i].screenId === id) return `${id}:${JSON.stringify(stack[i].params ?? {})}`;
-    }
-    return `${id}:{}`;
+    const i = entryOf(stack, shown);
+    return i >= 0 ? `${id}:${JSON.stringify(stack[i].params ?? {})}` : `${id}:{}`;
   }, [shown, stack]);
 
   /**
@@ -298,10 +314,9 @@ export default function SduiApp() {
    * screen it belongs to.
    */
   const shownPresent = useMemo(() => {
-    const id = shown?.screenId ?? "";
-    if (!id) return undefined;
-    for (let i = stack.length - 1; i >= 0; i--) if (stack[i].screenId === id) return stack[i].present;
-    return undefined;
+    if (!shown?.screenId) return undefined;
+    const i = entryOf(stack, shown);
+    return i >= 0 ? stack[i].present : undefined;
   }, [shown, stack]);
 
   // Warm every reachable screen once up, and keep the cached ones fresh while in front (hooks/useScreenRefresh).
@@ -385,6 +400,24 @@ export default function SduiApp() {
     stack.length > 1 ? nav.back : null,
     resolveEdgeSwipe(boot?.flags),
   );
+
+  // ANDROID'S BACK BUTTON pops the stack, as the header's chevron and the edge swipe do. Nothing listened for it, so
+  // Back from any screen left the app instead of going up. Registered ONCE, reading the stack through a ref: a
+  // handler added again on every change would sit above one a sheet (BotStage) added while open, and pop the screen
+  // under the sheet instead of closing it. At the root it returns false and Android does what it always does.
+  const backRef = useRef({ phase, stack, nav });
+  backRef.current = { phase, stack, nav };
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      const { phase: p, stack: s, nav: n } = backRef.current;
+      if (p !== "ready" || s.length === 0) return false;
+      const top = s[s.length - 1].screenId;
+      if (s.length === 1 && !transientScreenIds().includes(top)) return false;
+      n.back();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   // --- Render states --------------------------------------------------------
 
