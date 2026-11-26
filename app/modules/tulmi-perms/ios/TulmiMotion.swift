@@ -8,7 +8,7 @@ import Foundation
 ///   steps   a fitness bot the person made can count steps WITHOUT Apple Health. The phone answers with the same
 ///           daily summary Health sends: a day, its step count, and the walks, runs and rides of ten minutes or
 ///           more. No times finer than a day ever leave this file.
-///   driving just before a Plan Ease call rings, the phone is asked whether it is in a car, and answers yes or no.
+///   driving just before a Nudj call rings, the phone is asked whether it is in a car, and answers yes or no.
 ///           Nothing else, and nothing is kept.
 ///
 /// What this deliberately does not do: no live updates (every read is a query over a window that has passed), no

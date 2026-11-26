@@ -49,7 +49,7 @@ test("a stale on reads as off, so a missed end never holds calls for ever", () =
 });
 
 test("the filter's own moment goes with it, so the server's 12 hours do not creep", () => {
-  // Plan Ease reposts the state on every page appear. Without `at` the server counted its 12 hours from each post, so a
+  // Nudj reposts the state on every page appear. Without `at` the server counted its 12 hours from each post, so a
   // Focus whose end the filter never saw could hold calls for about 24 hours instead of 12.
   const saw = NOW - 3_600_000;
   assert.deepEqual(focusBody({ on: true, hold: "calls", at: saw }, "filter", NOW), { on: true, source: "filter", hold: "calls", at: saw });

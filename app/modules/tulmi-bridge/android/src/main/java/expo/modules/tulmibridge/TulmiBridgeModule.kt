@@ -244,7 +244,7 @@ class TulmiBridgeModule : Module() {
     // only what the binary says here (src/device/binaryCore.ts). glanceSteps:
     // the X0 widget switches its lines on its own at the glance's `steps`
     // (TailzuX0Widget.kt). realtimeCall: this build links the live voice client
-    // (react-native-webrtc) and TulmiStream's callAudio, so Plan Ease's call can
+    // (react-native-webrtc) and TulmiStream's callAudio, so Nudj's call can
     // be a real conversation instead of turn by turn (callRealtime.ts). Time
     // Sensitive is iOS's alone; a leave-by already wakes an Android phone
     // through its high priority and channel.

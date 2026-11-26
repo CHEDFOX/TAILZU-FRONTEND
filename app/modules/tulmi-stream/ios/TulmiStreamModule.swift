@@ -333,7 +333,7 @@ private final class Streamer: NSObject {
 ///
 ///   * the LOUDSPEAKER. `.playAndRecord` otherwise routes playback to the
 ///     earpiece, and a call you can only hear with the phone against your head
-///     is not the call Plan Ease makes: the item card has to stay in view. A
+///     is not the call Nudj makes: the item card has to stay in view. A
 ///     wired or Bluetooth headset keeps the route it has — someone wearing one
 ///     chose it. The override is re-applied when the route changes under us
 ///     (the client setting its own category counts as a change).

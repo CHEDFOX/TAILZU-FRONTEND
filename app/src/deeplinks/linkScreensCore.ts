@@ -40,7 +40,7 @@ export const LINK_SCREENS: Readonly<Record<string, readonly string[]>> = Object.
   "bots.activity": [],
   "bots.home": [],
   "home": [],
-  // The built-in bots' pages (the widgets' "bots.{slug}"), Plan Ease's home among them (an arrival reminder's tap).
+  // The built-in bots' pages (the widgets' "bots.{slug}"), Nudj's home among them (an arrival reminder's tap).
   "bots.plan": [],
   "bots.travel": [],
   "bots.talk": [],

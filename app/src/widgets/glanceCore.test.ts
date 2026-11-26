@@ -23,7 +23,7 @@ function sample(over: Record<string, unknown> = {}): Record<string, unknown> {
     bots: [
       { slug: "code", name: "Code bot", color: "#3F7D3A", face: "code", faceUrl: "https://api.x0bot.com/blip/bots/head-code.png?v=7",
         state: "needs", needs: 1, working: true, line: "fixing cart", link: "tulmi://screen/bots.code" },
-      { slug: "travel", name: "Travel bot", color: "#3E6E8E", face: "travel", faceUrl: "https://api.x0bot.com/blip/bots/head-travel.png?v=7",
+      { slug: "travel", name: "Nomaz", color: "#3E6E8E", face: "travel", faceUrl: "https://api.x0bot.com/blip/bots/head-travel.png?v=7",
         state: "working", needs: 0, working: true, line: "finding a hotel in Goa", link: "tulmi://screen/bots.travel" },
       { slug: "gym-bot", name: "Gym bot", color: "#2F5D50", face: null, faceUrl: null, state: "idle", link: "tulmi://screen/bots.gym-bot" },
     ],
@@ -288,12 +288,12 @@ test("the done state keeps the design the job was running under", () => {
 // ------------------------------------------------------------------ steps: lines that take over at their own minute
 
 const MIN = 60_000;
-/** A quiet evening glance with Plan Ease idle: its line, the lock words, and what comes next on their own. */
+/** A quiet evening glance with Nudj idle: its line, the lock words, and what comes next on their own. */
 function planGlance(steps: unknown, over: Record<string, unknown> = {}): Glance {
   return cleanGlance(sample({
     case: "quiet", needs: { count: 0, items: [] }, job: null, counts: { working: 0, needs: 0 },
     bots: [
-      { slug: "plan", name: "Plan Ease", state: "idle", line: "Next: design review 6 pm", link: "tulmi://screen/bots.plan" },
+      { slug: "plan", name: "Nudj", state: "idle", line: "Next: design review 6 pm", link: "tulmi://screen/bots.plan" },
       { slug: "code", name: "Code bot", state: "idle", line: "Ready", link: "tulmi://screen/bots.code" },
     ],
     lock: { inline: "Next: design review 6 pm", title: "Design review at 6 pm", line: "Indiranagar" },
@@ -352,15 +352,15 @@ test("what needs the person beats the time of day: an asking or busy row keeps i
   const steps = [{ at: NOW + MIN, bot: "plan", line: "Leave by 5:30 pm", lock: { inline: "Leave by 5:30", title: "Leave by 5:30 pm", line: "" } }];
   const asking = planGlance(steps, {
     case: "needs",
-    bots: [{ slug: "plan", name: "Plan Ease", state: "needs", needs: 1, line: "Move the grocery run to Sat 11 am?" }],
+    bots: [{ slug: "plan", name: "Nudj", state: "needs", needs: 1, line: "Move the grocery run to Sat 11 am?" }],
     needs: { count: 1, items: [{ id: "pm:e1:1793400000000", kind: "plan", bot: "plan", question: "Move the grocery run to Sat 11 am?",
       choices: [{ id: "move", label: "Move it", primary: true }, { id: "keep", label: "Keep" }], answerable: true }] },
-    lock: { inline: "Plan Ease needs you", title: "Plan Ease needs you", line: "Move the grocery run?" },
+    lock: { inline: "Nudj needs you", title: "Nudj needs you", line: "Move the grocery run?" },
   });
   const later = glanceAt(asking, NOW + 2 * MIN);
   assert.equal(later.bots[0]!.line, "Move the grocery run to Sat 11 am?");
-  assert.equal(later.lock.title, "Plan Ease needs you");
-  const busy = planGlance(steps, { bots: [{ slug: "plan", name: "Plan Ease", state: "working", working: true, line: "reading the circular" }] });
+  assert.equal(later.lock.title, "Nudj needs you");
+  const busy = planGlance(steps, { bots: [{ slug: "plan", name: "Nudj", state: "working", working: true, line: "reading the circular" }] });
   assert.equal(glanceAt(busy, NOW + 2 * MIN).bots[0]!.line, "reading the circular");
   // The lock words still move on a quiet or busy widget.
   assert.equal(glanceAt(busy, NOW + 2 * MIN).lock.title, "Leave by 5:30 pm");

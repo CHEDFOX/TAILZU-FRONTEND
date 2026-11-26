@@ -776,12 +776,12 @@ export const FONT_BRICOLAGE_CAPABILITY = "FontBricolage";
  */
 export const PUSH_BUTTON_CAPABILITY = "PushButton";
 /** NOT A COMPONENT (the phone): the call screen's pieces — speak.loud, speak.onDone and "$state" in speak.text; voiceLive.duplex;
- *  Text format "elapsed". Also a push-token cap: this JS takes Plan Ease's calls (docs/plan-ease.md "Calls"). */
+ *  Text format "elapsed". Also a push-token cap: this JS takes Nudj's calls (docs/plan-ease.md "Calls"). */
 export const BOT_CALL_CAPABILITY = "BotCall";
 // Text props, format "elapsed" (BOT_CALL_CAPABILITY; components/Text.tsx, elapsedCore.ts): content is a start time (epoch ms, or
 // ISO); shows "m:ss" (or "h:mm:ss" past an hour) since then, ticking every second; never negative.
 /**
- * NOT A COMPONENT (the phone): the actions voiceCall and voiceCallSet — Plan Ease's call as a live conversation instead of turn by
+ * NOT A COMPONENT (the phone): the actions voiceCall and voiceCallSet — Nudj's call as a live conversation instead of turn by
  * turn (sdui/voice/callRealtime.ts). SAID ONLY BY THE BINARY, never by this list: the live client is native code, so the name comes
  * from the bridge's `binaryFeatures` ("realtimeCall" → device/binaryCore.ts), and every older binary running the same JavaScript
  * says nothing and is sent today's turn call.

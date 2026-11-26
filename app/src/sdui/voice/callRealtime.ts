@@ -1,5 +1,5 @@
 /**
- * THE voiceCall AND voiceCallSet ACTIONS (VOICE_REALTIME_CAPABILITY): Plan Ease's call as a live conversation. The phone opens
+ * THE voiceCall AND voiceCallSet ACTIONS (VOICE_REALTIME_CAPABILITY): Nudj's call as a live conversation. The phone opens
  * one WebRTC connection straight to the voice service, with the microphone on it and a data channel it only READS; our server
  * does the SDP exchange with its own key and holds the session beside the call, so no credential ever reaches the phone. The
  * rules (phases, words, the throttle, the timers) are callRealtimeCore.ts; this file is the microphone, the connection and the

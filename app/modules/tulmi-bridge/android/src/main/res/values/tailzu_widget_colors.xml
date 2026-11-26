@@ -38,7 +38,7 @@
     <color name="tailzu_widget_outline">#949494</color>
 
     <!--
-      The X0 picker preview's sample bots, Code bot and Travel bot, in their own colours (backend bots/art.ts); a touch lighter
+      The X0 picker preview's sample bots, Code bot and Nomaz, in their own colours (backend bots/art.ts); a touch lighter
       at night so they carry on the dark ground. On the placed widget a bot's colour is the server's.
     -->
     <color name="tailzu_x0_preview_code">#4F7A3A</color>

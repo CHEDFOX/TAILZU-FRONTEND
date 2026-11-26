@@ -5,7 +5,7 @@
 // named in one require per owner, inside try/catch, and nowhere else.
 //
 // There are two owners, and there should never be a third without a reason written here:
-//   voice/callRealtime.ts  Plan Ease's call as one live conversation, behind the binary's own `realtimeCall` feature.
+//   voice/callRealtime.ts  Nudj's call as one live conversation, behind the binary's own `realtimeCall` feature.
 //   sdui/call/session.ts   one of our own calls (the `call` block; TAILZU-BACKEND/docs/rooms.md). It needs no binary feature: a
 //                          binary without the client loads null, and then the block is never registered, so the server never sends
 //                          a screen that needs it (blocks/registry.ts).
@@ -81,7 +81,7 @@ test("each owner has one require, inside try/catch", () => {
   }
 });
 
-test("Plan Ease's own require is behind the binary's feature", () => {
+test("Nudj's own require is behind the binary's feature", () => {
   const src = readFileSync(REALTIME, "utf8");
   const loader = src.slice(src.indexOf("function loadWebrtc"), src.indexOf("function modelName"));
   assert.ok(loader.includes('hasBinaryFeature("realtimeCall")'), "the require is not behind the binary's feature");

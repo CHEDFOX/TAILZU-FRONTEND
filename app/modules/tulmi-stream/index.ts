@@ -10,7 +10,7 @@ import type { EventSubscription } from "expo-modules-core";
  * it lazily so the JS app still runs everywhere; callers check isStreamAvailable()
  * and fall back to the file-based path when it's absent.
  *
- * It also sets the phone's audio up for Plan Ease's live call (callAudio below),
+ * It also sets the phone's audio up for Nudj's live call (callAudio below),
  * which is the only other thing in the app that holds the microphone and the
  * speaker at once. That part exists only in a binary that has the live call
  * (device/binaryCore.ts "realtimeCall"), so it is guarded on its own.

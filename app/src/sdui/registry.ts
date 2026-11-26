@@ -228,7 +228,7 @@ export const CORE_COMPONENTS = [
    */
   "BotCall",
   /**
-   * NOT HERE, ON PURPOSE — `VoiceRealtime` (Plan Ease's call as a live conversation: the voiceCall and voiceCallSet actions,
+   * NOT HERE, ON PURPOSE — `VoiceRealtime` (Nudj's call as a live conversation: the voiceCall and voiceCallSet actions,
    * voice/callRealtime.ts). The live client is native code (react-native-webrtc, tulmi-stream's callAudio), so the name is not
    * this bundle's to promise: it comes from the bridge's `binaryFeatures` ("realtimeCall" → device/binaryCore.ts) and is added
    * by client/capabilities.ts. The same JavaScript on an older binary says nothing, so the server keeps today's turn call for it.

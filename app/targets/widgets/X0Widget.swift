@@ -36,7 +36,7 @@ struct X0GlanceWidget: Widget {
 enum X0Lead {
   case needs(X0Glance.Ask)
   case job(X0Glance.Job)
-  /// A bot at work with no job of its own (Travel bot finding a hotel).
+  /// A bot at work with no job of its own (Nomaz finding a hotel).
   case bot(X0Glance.Bot)
   case done(X0Glance.Done)
   case quiet
@@ -545,7 +545,7 @@ struct MediumBusy: View {
   }
 }
 
-/// "Travel bot ● finding a hotel in Goa": the next bot at work; else the situation line.
+/// "Nomaz ● finding a hotel in Goa": the next bot at work; else the situation line.
 struct OtherAtWork: View {
   let c: X0Context
   let besides: String

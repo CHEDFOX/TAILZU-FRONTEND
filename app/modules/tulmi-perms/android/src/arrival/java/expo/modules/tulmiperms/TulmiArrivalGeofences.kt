@@ -37,7 +37,7 @@ import com.google.android.gms.location.LocationServices
  * (`GEOFENCE_TRANSITION_ENTER`, no exit, no dwell), never expiring, ids all starting `x0.arrive.`.
  *
  * A SYNC IS A DIFF, NOT A REPLACEMENT, and that is not a performance choice. `arrival.sync` runs on
- * every Plan Ease page appear (SPEC 7.2), so removing and re-adding the whole set would re-arm a
+ * every Nudj page appear (SPEC 7.2), so removing and re-adding the whole set would re-arm a
  * fence the person is standing inside several times a day — and `INITIAL_TRIGGER_ENTER` would fire
  * each time, so an item at home would say "You're at …" on every app open and after every reboot.
  * So: no initial trigger at all (a geofence fires on a real crossing), and only the ids that

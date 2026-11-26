@@ -74,7 +74,7 @@ const TULMI_ANDROID_HEALTH_SLEEP =
 // the one of the three that can go on as soon as its screens are live.
 const TULMI_ANDROID_CALENDAR = (process.env.TULMI_ANDROID_CALENDAR ?? "").trim().toLowerCase() === "on";
 // MOTION: daily steps for a fitness bot when Health Connect is not the source, and the "in a car?"
-// check just before a Plan Ease call. ONE grant covers both: from Android 10 the system refuses a
+// check just before a Nudj call. ONE grant covers both: from Android 10 the system refuses a
 // step-counter listener without ACTIVITY_RECOGNITION, and the driving check needs it too. On,
 // `permissions` gains it, modules/tulmi-perms' android/build.gradle compiles src/motion/java and
 // links play-services-location; off, blockedPermissions takes the permission out, src/motionOff/java
@@ -131,7 +131,7 @@ const metaPlugin: [string, Record<string, unknown>][] =
 // camera string that drifts is a new App Review question. The camera opens only when the
 // person chooses to take a photo or video, or to scan a code.
 const MIC_USAGE =
-  "X0 Bot uses the microphone to turn your speech into text, and to talk with your bots by voice, including when Plan Ease calls you. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.";
+  "X0 Bot uses the microphone to turn your speech into text, and to talk with your bots by voice, including when Nudj calls you. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.";
 const CAMERA_USAGE =
   "X0 Bot uses the camera when you take a photo or video, or scan a code, to give to a bot or send in a chat.";
 // EVERY PURPOSE STRING, each written for one data type and one purpose, and each with a working
@@ -140,7 +140,7 @@ const CAMERA_USAGE =
 // string that drifts from the screen is a 5.1.1 rejection, and tulmi/tests/perm-words.test.ts
 // pairs each one with its card.
 //
-// Location is one foreground fix when the person taps "Use my location" on Plan Ease's "Where
+// Location is one foreground fix when the person taps "Use my location" on Nudj's "Where
 // does your day start?" card, and, from 8.9.1, arrival reminders: the iPhone's OWN location
 // notification trigger watches a place and shows the reminder, which needs only While Using
 // (the system monitors the region, the app is not woken and is never told of an arrival). So
@@ -170,15 +170,15 @@ const HEALTH_USAGE =
 const HEALTH_UPDATE_USAGE =
   "X0 Bot never writes to Apple Health. It only reads your steps, workouts and sleep for a fitness bot you made and switched on.";
 const CALENDAR_USAGE =
-  "X0 Bot reads when you're busy in your calendar when you turn on Plan around my calendar, so Plan Ease can plan and call " +
+  "X0 Bot reads when you're busy in your calendar when you turn on Plan around my calendar, so Nudj can plan and call " +
   "around your events. It keeps only the busy times, never event names, and never uses your calendar for ads.";
 const REMINDERS_USAGE =
-  "X0 Bot keeps one Reminders list, called X0 Bot, in step with your Plan Ease to-dos when you turn on Sync with Reminders, " +
+  "X0 Bot keeps one Reminders list, called X0 Bot, in step with your Nudj to-dos when you turn on Sync with Reminders, " +
   "so a to-do you add in either place shows up in both. Its items are treated like your other to-dos, including by AI if you " +
   "allow it. It doesn't open your other lists and never uses Reminders for ads.";
 const MOTION_USAGE =
   "X0 Bot uses Motion & Fitness to count your steps for a fitness bot you made, when you choose it instead of Apple Health, " +
-  "and, if you turn it on, to check whether you're driving just before Plan Ease calls, so the call can wait. It never uses " +
+  "and, if you turn it on, to check whether you're driving just before Nudj calls, so the call can wait. It never uses " +
   "it for ads.";
 
 const config: ExpoConfig = {
@@ -323,7 +323,7 @@ const config: ExpoConfig = {
       // BACK IN 8.9.1, each with its screen in this same binary and a card before
       // its prompt (perms2/SPEC.md 2-7): CALENDARS, REMINDERS and MOTION, beside
       // LOCATION and HEALTH.
-      //  - Location: one foreground fix behind "Use my location" on Plan Ease's
+      //  - Location: one foreground fix behind "Use my location" on Nudj's
       //    day-starts card (modules/tulmi-perms, CLLocationManager.requestLocation
       //    plus CLGeocoder), and arrival reminders, which are
       //    UNLocationNotificationTrigger requests the SYSTEM watches — While Using
@@ -364,7 +364,7 @@ const config: ExpoConfig = {
       // an End button (targets/widgets/FlowActivity.swift). Voice notes and
       // videos the bots take as input use it too.
       //
-      // AND THE CALL. Plan Ease calls about anything the call judge thinks
+      // AND THE CALL. Nudj calls about anything the call judge thinks
       // matters, and always about a leave-by or a bill due today; in this build
       // answering it is a conversation: the microphone is open
       // while the call is on, in the app, in the foreground, and only after the
@@ -432,7 +432,7 @@ const config: ExpoConfig = {
       NSRemindersUsageDescription: REMINDERS_USAGE,
       // MOTION & FITNESS: CMPedometer for a fitness bot's daily steps when Apple
       // Health is not the source, and one CMMotionActivityManager query just
-      // before a Plan Ease call answering "in a car?" yes or no. Nothing else,
+      // before a Nudj call answering "in a car?" yes or no. Nothing else,
       // no places and nothing finer than a day. Touching either API without
       // this key crashes the app, so tulmi-perms' abilities() reads the key out
       // of the running binary before it says `motion` at all.
@@ -468,7 +468,7 @@ const config: ExpoConfig = {
       // mode would be a 2.5.4 declaration with no code behind it, so
       // tools/ci/check-config-shape.mjs fails if it ever appears here.
       // "remote-notification" also carries the pre-ring check (perms2/SPEC.md
-      // 5.3): a silent push about 30 seconds before a Plan Ease call, answered
+      // 5.3): a silent push about 30 seconds before a Nudj call, answered
       // "driving" or "not driving" and "a Focus is on" or not. Best effort, and
       // the server rings as it does today when no answer comes.
       UIBackgroundModes: ["audio", "remote-notification"],
@@ -582,7 +582,7 @@ const config: ExpoConfig = {
         "$(AppIdentifierPrefix)com.tulmi.app.shared",
       ],
       // TIME SENSITIVE: a leave-by and a bill due today may break through a
-      // Focus and the Scheduled Summary (Plan Ease's plan_leave and plan_due,
+      // Focus and the Scheduled Summary (Nudj's plan_leave and plan_due,
       // sent with interruptionLevel "time-sensitive"). Only those: the day
       // notes go as they are, and the morning note as "passive". The person
       // can still turn it off for X0 Bot in Settings › Notifications. The
