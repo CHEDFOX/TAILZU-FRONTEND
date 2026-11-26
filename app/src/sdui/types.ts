@@ -494,6 +494,8 @@ export interface BotTilesProps {
   stage?: number;
   /** BotTilesStage: how many lines an idle tile's line may take (2). */
   subLines?: number;
+  /** BotTilesStage: the room between a tile's name and its line (px, 3). */
+  nameGap?: number;
   /** The strip's height. */
   stripHeight?: number;
   /** Home's rare idle surprises (BotMoments): every `every` seconds, with `chance`, one idle bot plays one of `moments`. */

@@ -16,10 +16,11 @@
  * takes the bots away and leaves the tiles working.
  *
  *   { type: "BotTiles", props: { tiles: [{ slug, name, sub, color, kind, state, action }], columns, height, padding,
- *     gap, faces: { regular, medium, semibold }, strip?, stripHeight?, stage?, subLines? } }
+ *     gap, faces: { regular, medium, semibold }, strip?, stripHeight?, stage?, subLines?, nameGap? } }
  *
  * `stage` (capability "BotTilesStage"): the bot plays in the top `stage` px of each tile and its words start under it,
- * so a taller tile gives the words room instead of the bot; `subLines` is how many lines the idle line may take (2).
+ * so a taller tile gives the words room instead of the bot; `subLines` is how many lines the idle line may take (2),
+ * `nameGap` the room between the name and the line (3).
  *
  * `strip` (capability "BotTilesStrip"): one more tile as a full-width row under the grid (Notes), its bot on a stage of
  * its own at the left and its name and line on the right. It is the last bot of the same world, so its tap is the
@@ -109,6 +110,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
   // BotTilesStage: the bot's room at the top of each tile; its words start under it and the tile grows down for them.
   const stage = Number(props?.stage) > 0 ? Number(props.stage) : 0;
   const subLines = Math.max(1, Math.min(6, Number(props?.subLines) || 2));
+  const nameGap = Math.max(0, Math.min(24, Number(props?.nameGap) || 3));
   const faces = { regular: "Tailzu Geist", medium: "Tailzu Geist Medium", semibold: "Tailzu Geist SemiBold", ...(props?.faces ?? {}) };
   const reduced = useReducedMotion();
 
@@ -267,7 +269,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
               <Animated.View
                 pointerEvents="none"
                 onLayout={(e) => { const y = e.nativeEvent.layout.y; if (Math.abs((floors.current[i] ?? 0) - y) > 0.5) { floors.current[i] = y; place(); } }}
-                style={{ position: "absolute", left: pad, right: pad, ...(stage ? { top: stage } : { bottom: pad }), gap: 3, opacity: fades[i] }}
+                style={{ position: "absolute", left: pad, right: pad, ...(stage ? { top: stage } : { bottom: pad }), gap: nameGap, opacity: fades[i] }}
               >
                 <Text style={{ fontFamily: faces.semibold, fontWeight: "normal", fontSize: 16, lineHeight: 21, color: INK }} numberOfLines={1}>{t.name}</Text>
                 <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 12, lineHeight: 16, color: sub.color }} numberOfLines={sub.lines}>{t.sub}</Text>
