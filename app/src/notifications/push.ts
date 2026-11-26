@@ -143,7 +143,7 @@ export async function registerForPushToken(): Promise<string | null> {
         appVersion: APP_VERSION,
         // What this phone can do with a push. The binary's (device/binaryCore.ts pushCaps): "PushTimeSensitive" when the Time
         // Sensitive entitlement is signed in, so the server marks a leave-by or a bill due today time-sensitive only for a phone
-        // that has it. This JavaScript's (callsCore.ts callCaps): "BotCall", it takes Plan Ease's calls (always on iOS; on
+        // that has it. This JavaScript's (callsCore.ts callCaps): "BotCall", it takes Nudj's calls (always on iOS; on
         // Android only with its call channels usable), and "BotRingtone", the iPhone has the ringtone where iOS plays it, so the
         // server may name it. "PushTapSeen" (categoriesCore.ts TAP_SEEN_CAP): this JavaScript tells two pushes that share one
         // notification id apart, so the server may give a follow's pushes one collapse id. Every launch sends them, so a phone

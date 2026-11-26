@@ -70,7 +70,7 @@ import kotlin.math.sqrt
  *
  * Redrawn whenever the app writes a glance, after an answer pressed here, and, while a job runs or a finished thing shows, every
  * few minutes by itself (an inexact alarm that never wakes the phone), so its minutes count on; it stops on a glance hours old.
- * And at each of the glance's steps (X0Steps): a leave-by takes Plan Ease's line at its minute, then the next thing, with no new
+ * And at each of the glance's steps (X0Steps): a leave-by takes Nudj's line at its minute, then the next thing, with no new
  * glance, through a second alarm of the same kind set for the next step.
  */
 class TailzuX0Widget : AppWidgetProvider() {

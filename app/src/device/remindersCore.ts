@@ -2,7 +2,7 @@
  * ONE REMINDERS LIST: THE RULES (docs: perms2 3). Pure: no react-native, no native module, so each rule is tested in Node
  * (remindersCore.test.ts); reminders.ts calls the module and the server.
  *
- * X0 Bot keeps ONE list, called "X0 Bot", in step with Plan Ease's to-dos. iOS has no write-only grant, so the person gives full
+ * X0 Bot keeps ONE list, called "X0 Bot", in step with Nudj's to-dos. iOS has no write-only grant, so the person gives full
  * access — and the module still fetches only that one list, by its own identifier. Only a title, a due date and whether it is
  * done ever cross: no notes, URL, location, priority, alarm or subtask is read or written, no other list is touched, and nothing
  * reaches `$state`.

@@ -2,7 +2,7 @@ package expo.modules.tulmibridge
 
 /**
  * THE X0 GLANCE'S STEPS: lines that take over at their own minute with no new glance (glanceCore.ts GlanceStep is the rule; the
- * app asks for them with steps=1 only because this binary says glanceSteps, TulmiBridgeModule.kt). A leave-by takes Plan Ease's
+ * app asks for them with steps=1 only because this binary says glanceSteps, TulmiBridgeModule.kt). A leave-by takes Nudj's
  * line at its time, then the next thing, so what the widget says stays true while the app is not opened. X0Doc applies them as
  * it reads the glance, and TailzuX0.step sets the redraw for the next one.
  *

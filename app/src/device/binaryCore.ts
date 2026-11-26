@@ -12,7 +12,7 @@
  *   glanceSteps    the X0 widget switches its lines on its own at the glance's `steps` (glanceCore.ts stepAt; X0Glance.swift,
  *                  TailzuX0Widget.kt). Told as GlanceSteps in the bootstrap, and as `steps=1` on the glance's own request
  *                  (glance.ts), so only such a phone is sent steps.
- *   realtimeCall   this binary links the live voice client (react-native-webrtc) and tulmi-stream's callAudio, so Plan Ease's
+ *   realtimeCall   this binary links the live voice client (react-native-webrtc) and tulmi-stream's callAudio, so Nudj's
  *                  call can be a real conversation instead of turn by turn (sdui/voice/callRealtime.ts). Told as VoiceRealtime
  *                  in the bootstrap, so the server draws the call screen's realtime mode for this phone alone; every older
  *                  binary gets today's turn-by-turn call, whatever JavaScript it is running.

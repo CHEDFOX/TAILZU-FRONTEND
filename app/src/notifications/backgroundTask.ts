@@ -67,7 +67,7 @@ async function handleSilentPush(payload: unknown): Promise<void> {
 }
 
 /**
- * THE PRE-RING CHECK (docs: perms2 5.3). About 30 seconds before a Plan Ease call would ring, the server asks this phone two
+ * THE PRE-RING CHECK (docs: perms2 5.3). About 30 seconds before a Nudj call would ring, the server asks this phone two
  * yes-or-no questions and nothing more: is it in a car (so the call can wait, and a leave-by call can be skipped because the
  * person is already on their way), and is a Focus on. Never where the phone is, never a speed, never which Focus — and nothing is
  * kept here: the answer goes straight to that call's own route.

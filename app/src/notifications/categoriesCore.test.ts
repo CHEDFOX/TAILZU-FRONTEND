@@ -93,7 +93,7 @@ test("a button that opens says which it was; a plain tap says nothing", () => {
   assert.equal(pressedButton("x; rm -rf", DEFAULT), "");
 });
 
-// ------------------------------------------------------------------ one press, one key (Plan Ease follow-through)
+// ------------------------------------------------------------------ one press, one key (Nudj follow-through)
 
 /** The act door's key rule (tulmi src/widgets/act.ts KEY_RE): a key outside it is ignored and the item + button is used instead. */
 const SERVER_KEY = /^[A-Za-z0-9_.:-]{8,120}$/;

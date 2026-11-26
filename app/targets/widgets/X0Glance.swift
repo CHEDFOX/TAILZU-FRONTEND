@@ -12,7 +12,7 @@ import WidgetKit
 // contract's order: needs → done → working → quiet.
 //
 // STEPS: lines that take over at their own minute with no new glance (glanceCore.ts GlanceStep; asked for with steps=1 only
-// because this binary says glanceSteps, TulmiBridgeModule.swift). A leave-by takes Plan Ease's row and the Lock Screen at its
+// because this binary says glanceSteps, TulmiBridgeModule.swift). A leave-by takes Nudj's row and the Lock Screen at its
 // time, then the next thing, so what the widget says stays true while the app is not opened. X0Provider puts an entry at each
 // step's minute and draws each entry as the glance reads then (`asOf(_:)`).
 
@@ -357,7 +357,7 @@ struct X0Glance {
     g.bots = [
       Bot(slug: "code", name: "Code bot", color: "", face: "code", state: "working", needs: 0, working: true,
           line: "fixing cart", link: nil),
-      Bot(slug: "travel", name: "Travel bot", color: "", face: "travel", state: "working", needs: 0, working: true,
+      Bot(slug: "travel", name: "Nomaz", color: "", face: "travel", state: "working", needs: 0, working: true,
           line: "finding a hotel in Goa", link: nil),
       Bot(slug: "keybot", name: "Keybot", color: "", face: "keybot", state: "idle", needs: 0, working: false,
           line: "1,240 words today", link: nil),

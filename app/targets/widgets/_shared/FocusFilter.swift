@@ -17,7 +17,7 @@ import Foundation
 // tulmi-perms' focusState(), and POST /v1/widgets/focus { on, hold, at } with the WIDGETS' OWN narrow token from the
 // shared Keychain — never the session's (the pattern and the helpers are WidgetAct.swift's, next door). A token
 // already on a phone carries no focus scope until it is next reissued, so that post may be refused for a while;
-// Plan Ease's own focus.sync, from the app, catches that up, and the row never claims the hold is live until the
+// Nudj's own focus.sync, from the app, catches that up, and the row never claims the hold is live until the
 // server has seen one state.
 //
 // PLACEMENT (10.4, settled by the proof build's item 5). This file sits in `_shared`, which @bacons/apple-targets
@@ -44,7 +44,7 @@ import Foundation
 /// What X0 Bot holds while the Focus is on. The person picks this in Settings when they add the filter.
 @available(iOS 16.0, *)
 enum X0FocusHold: String, AppEnum {
-  /// Plan Ease's calls wait; everything else is as usual.
+  /// Nudj's calls wait; everything else is as usual.
   case calls
   /// Its calls and its other pings wait too.
   case callsAndPings
@@ -55,7 +55,7 @@ enum X0FocusHold: String, AppEnum {
 
   static var caseDisplayRepresentations: [X0FocusHold: DisplayRepresentation] {
     [
-      .calls: DisplayRepresentation(title: "Hold Plan Ease calls"),
+      .calls: DisplayRepresentation(title: "Hold Nudj calls"),
       .callsAndPings: DisplayRepresentation(title: "Hold calls and other pings"),
     ]
   }
@@ -66,7 +66,7 @@ enum X0FocusHold: String, AppEnum {
 struct X0FocusFilter: SetFocusFilterIntent {
   static let title: LocalizedStringResource = "X0 Bot"
   static let description = IntentDescription(
-    "While this Focus is on, Plan Ease's calls wait: what can't wait arrives as a notice instead, and the rest is listed when the Focus ends."
+    "While this Focus is on, Nudj's calls wait: what can't wait arrives as a notice instead, and the rest is listed when the Focus ends."
   )
 
   /// NO DEFAULT, and optional, on purpose: iOS runs perform() with the default values when the Focus's own values
@@ -75,7 +75,7 @@ struct X0FocusFilter: SetFocusFilterIntent {
   @Parameter(title: "While this Focus is on")
   var hold: X0FocusHold?
 
-  /// What Settings offers when the person adds the filter: holding Plan Ease's calls. This is a SUGGESTION, which
+  /// What Settings offers when the person adds the filter: holding Nudj's calls. This is a SUGGESTION, which
   /// is a different thing from the default the end-of-Focus call carries.
   static func suggestedFocusFilters(for context: FocusFilterSuggestionContext) async -> [X0FocusFilter] {
     var suggested = X0FocusFilter()
@@ -87,7 +87,7 @@ struct X0FocusFilter: SetFocusFilterIntent {
   var displayRepresentation: DisplayRepresentation {
     switch hold {
     case .callsAndPings: return DisplayRepresentation(title: "Holds calls and other pings")
-    case .calls: return DisplayRepresentation(title: "Holds Plan Ease calls")
+    case .calls: return DisplayRepresentation(title: "Holds Nudj calls")
     case nil: return DisplayRepresentation(title: "Holds nothing")
     }
   }
@@ -131,7 +131,7 @@ enum X0FocusState {
   }
 
   /// POST /v1/widgets/focus { on, hold, at }, with the widgets' own token. Best effort: a refusal changes nothing
-  /// here, because the App Group state above is what Plan Ease's focus.sync sends from the app — with the same `at`.
+  /// here, because the App Group state above is what Nudj's focus.sync sends from the app — with the same `at`.
   static func post(on: Bool, hold: String, at: Double = Date().timeIntervalSince1970 * 1000) async {
     guard let token = WidgetKeychain.string(WidgetAct.tokenAccount), token.hasPrefix("xwt_"),
           let raw = WidgetAct.store?.string(forKey: WidgetAct.tokenMetaKey), let data = raw.data(using: .utf8),

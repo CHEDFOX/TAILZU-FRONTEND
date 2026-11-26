@@ -56,7 +56,7 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
-    <!-- The area's name the person saves on Plan Ease's day-starts card, typed or filled in by
+    <!-- The area's name the person saves on Nudj's day-starts card, typed or filled in by
          "Use my location". It is coarse location either way, which was already true of a typed
          area.
          STILL NOT PreciseLocation, and build 8.9.1 does not change that although the prompt now
@@ -186,7 +186,7 @@
     <!-- Other User Content: what the person writes to their bots and their own plan. From 8.9.1
          this row also covers the BUSY TIMES read from the iPhone's calendars (start, end and
          all-day only — never an event's name, place, notes, people or calendar name) and the
-         items of the one Reminders list X0 Bot makes, which become Plan Ease to-dos and are kept
+         items of the one Reminders list X0 Bot makes, which become Nudj to-dos and are kept
          like typed ones. Busy times are replaced at each sync, deleted when the switch goes off,
          and gone a day after each block ends. -->
     <dict>
@@ -294,7 +294,7 @@
         <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
       </array>
     </dict>
-    <!-- Other Data Types: the two one-bit answers Plan Ease's calls need and nothing else —
+    <!-- Other Data Types: the two one-bit answers Nudj's calls need and nothing else —
          whether a Focus (or Do Not Disturb) is on, so a call becomes a notice, and whether the
          phone is in a car just before a call rings, so the call can wait. Never WHICH Focus,
          never a place, never a speed. The Focus state lapses after 12 hours; the driving answer

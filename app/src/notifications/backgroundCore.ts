@@ -11,7 +11,7 @@
  *   { kind: "bots.update", event, state, look? }       Android: repost or end the ongoing "Bots at work" notice with this state
  *                                                      (the same ContentState the iPhone's Live Activity is pushed). Data only, high
  *                                                      priority; a force-stopped app receives nothing, and that is right
- *   { kind: "plan_call_check", call, want }            about 30 s before a Plan Ease call would ring: answer whether the phone is
+ *   { kind: "plan_call_check", call, want }            about 30 s before a Nudj call would ring: answer whether the phone is
  *                                                      in a car and whether a Focus is on (docs: perms2 5.3), as yes or no and
  *                                                      nothing else. No answer is fine: the server rings as it does today
  *

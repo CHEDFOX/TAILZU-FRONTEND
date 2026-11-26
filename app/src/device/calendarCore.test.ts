@@ -107,7 +107,7 @@ test("blocks are cut to the window, split into two-day pieces, and capped at 300
     { s: "x", e: "y" },
     null,
   ], from, to);
-  // A week away is busy all week: cutting the block short would leave days 3 to 5 reading as free, and Plan Ease would plan
+  // A week away is busy all week: cutting the block short would leave days 3 to 5 reading as free, and Nudj would plan
   // and call into them. Each piece is two days at most, which is what the server and the table allow.
   assert.deepEqual(got, [
     { s: from, e: from + 3600_000, allDay: false },

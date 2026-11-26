@@ -1,5 +1,5 @@
 /**
- * One Reminders list, kept in step with Plan Ease's to-dos (docs: perms2 3). iPhone only: Android has no reminders store, and
+ * One Reminders list, kept in step with Nudj's to-dos (docs: perms2 3). iPhone only: Android has no reminders store, and
  * the server's Google Tasks connector covers it there. Every native function is reached through natives.ts and may be missing
  * (an older binary, Expo Go, a cut usage key), and then the action says "unavailable".
  *
