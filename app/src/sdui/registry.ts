@@ -91,6 +91,8 @@ export const CORE_COMPONENTS = [
   "BotsMotion", "BotTiles", "BotCard",
   /** A full-width strip under BotTiles' grid (Notes), its bot at the left, in the same world as the tiles (BotTiles.tsx). */
   "BotTilesStrip",
+  /** BotTilesProps.stage: the bot at the top of each tile, its name and line under him (BotTiles.tsx). */
+  "BotTilesStage",
   /** A bot's own tiny bot on its pages (BotBuddy.tsx; types.ts BotBuddyProps), on the same core. */
   "BotBuddy",
   /**

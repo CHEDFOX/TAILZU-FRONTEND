@@ -490,11 +490,18 @@ export interface BotTilesProps {
   faces: { regular: string; medium: string; semibold: string };
   /** One more tile, as a full-width row under the grid (Notes): its bot at the left, its words at the right. Capability BOT_TILES_STRIP. */
   strip?: BotTileSpec;
+  /** BotTilesStage: the bot's room at the top of each tile (px); the words start under it. */
+  stage?: number;
+  /** BotTilesStage: how many lines an idle tile's line may take (2). */
+  subLines?: number;
   /** The strip's height. */
   stripHeight?: number;
   /** Home's rare idle surprises (BotMoments): every `every` seconds, with `chance`, one idle bot plays one of `moments`. */
   surprises?: { every: number; chance: number; moments: string[] };
 }
+
+/** A build that draws BotTilesProps.stage and subLines. */
+export const BOT_TILES_STAGE = "BotTilesStage";
 
 /** A build that draws BotTilesProps.strip. */
 export const BOT_TILES_STRIP = "BotTilesStrip";
