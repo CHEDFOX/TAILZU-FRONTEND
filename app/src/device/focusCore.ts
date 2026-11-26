@@ -24,7 +24,7 @@ export interface FocusBody {
   source: FocusSource;
   /**
    * WHEN THE FILTER ITSELF SAW THIS, in milliseconds (the App Group's own `at`). The server holds a state for 12 hours from
-   * this moment, not from the post: Plan Ease reposts the same state on every page appear, so without it each repost pushed
+   * this moment, not from the post: Nudj reposts the same state on every page appear, so without it each repost pushed
    * the server's limit forward and a Focus whose end was never seen could hold calls for about 24 hours instead of 12.
    * Only for the filter, which writes `at`; Do Not Disturb is read at the moment it is posted.
    */
@@ -74,7 +74,7 @@ export interface FocusDeps {
 }
 
 /**
- * The focus.sync action, run on each Plan Ease page appear: it catches up a state the filter's own post could not send (a
+ * The focus.sync action, run on each Nudj page appear: it catches up a state the filter's own post could not send (a
  * widgets token issued before the scope existed gets a 403, perms2 4.5). The path is checked first; nothing is read off the pin.
  */
 export async function focusSync(

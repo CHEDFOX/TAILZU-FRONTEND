@@ -117,7 +117,7 @@ const SWITCH_PROPERTIES = {
 //
 // NSMotionUsageDescription LEFT this list in 8.9.1: Motion & Fitness now has two
 // screens behind it, a fitness bot's steps without Apple Health and the "in a
-// car?" check before a Plan Ease call, so it is required below instead.
+// car?" check before a Nudj call, so it is required below instead.
 // NSFocusStatusUsageDescription joined it: the Focus Filter asks nothing and
 // Focus Status is deliberately not used (perms2/SPEC.md 0, change 1).
 // NSCalendarsWriteOnlyAccessUsageDescription joined it too: nothing writes a
@@ -140,7 +140,7 @@ const FORBIDDEN_PLIST = [
 // declares the matching capability, so a key cut here takes its feature's row
 // off the screen by itself (perms2/SPEC.md 9.2).
 const REQUIRED_PLIST = {
-  NSLocationWhenInUseUsageDescription: 'Plan Ease\'s "Use my location", and arrival reminders',
+  NSLocationWhenInUseUsageDescription: 'Nudj\'s "Use my location", and arrival reminders',
   NSHealthShareUsageDescription: "a fitness bot's Apple Health switch",
   NSCalendarsFullAccessUsageDescription: '"Plan around my calendar" (iOS offers no read-only grant)',
   NSCalendarsUsageDescription: "the same, under the pre-iOS-17 key EventKit's upload scan may ask for",

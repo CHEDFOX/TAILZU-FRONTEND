@@ -462,7 +462,7 @@ public class TulmiBridgeModule: Module {
     //   glanceSteps    the X0 widget switches its lines on its own at the
     //                  glance's `steps` (X0Glance.swift `asOf(_:)`, X0Provider)
     //   realtimeCall   this build links the live voice client (react-native-webrtc)
-    //                  and TulmiStream's callAudio, so Plan Ease's call can be a
+    //                  and TulmiStream's callAudio, so Nudj's call can be a
     //                  real conversation instead of turn by turn; the server draws
     //                  the call screen's realtime mode only for a phone that says
     //                  this (src/sdui/voice/callRealtime.ts)

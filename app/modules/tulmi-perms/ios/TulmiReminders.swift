@@ -3,7 +3,7 @@ import Foundation
 
 /// ONE REMINDERS LIST, CALLED X0 BOT (perms2/SPEC.md 3).
 ///
-/// `Sync with Reminders` keeps one list in step with Plan Ease's to-dos. This Swift opens THAT LIST AND NOTHING
+/// `Sync with Reminders` keeps one list in step with Nudj's to-dos. This Swift opens THAT LIST AND NOTHING
 /// ELSE: it finds it by the identifier it kept, else by its title, else makes it, and every read and every write
 /// below checks the item it found really belongs to that list before touching it. No other list's items are ever
 /// fetched, counted or named, and the list's identifier — with the small map of which to-do already got which
@@ -108,7 +108,7 @@ final class TulmiReminders {
       guard let id = row["id"] as? String, !id.isEmpty else { continue }
       // ALREADY ADDED ONCE? The links POST may have been lost on its way to the server, so the server asks for
       // the same to-do again. Reuse the item this phone already made for it, rather than leaving the person with
-      // "Buy milk" twice in Reminders and, after the next read, twice in Plan Ease.
+      // "Buy milk" twice in Reminders and, after the next read, twice in Nudj.
       if let kept = links[id], let mine = find(kept, in: list) {
         TulmiReminders.fill(mine, from: row)
         do { try store.save(mine, commit: true) } catch { continue }

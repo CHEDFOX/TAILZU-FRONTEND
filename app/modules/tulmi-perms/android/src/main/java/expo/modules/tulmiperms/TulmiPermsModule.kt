@@ -60,7 +60,7 @@ import java.util.Locale
  *                       "unavailable" and the app says nothing either way.
  * focusState()          getCurrentInterruptionFilter(), which needs no permission at all
  *                       (ACCESS_NOTIFICATION_POLICY is for CHANGING Do Not Disturb, and this
- *                       app never changes it). Just whether a quiet mode is on, so Plan Ease
+ *                       app never changes it). Just whether a quiet mode is on, so Nudj
  *                       can send a notice instead of ringing. Never which mode, never a schedule
  *                       and never anything about other apps.
  * integrityPrepare(p)   Play Integrity's warm-up and token, for abuse and fraud prevention

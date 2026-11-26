@@ -12,7 +12,7 @@ import {
 
 const PEOPLE: Person[] = [{ id: "u1", name: "Mom" }, { id: "u2", name: "Rohan Sharma" }, { id: "u3", name: "Meera" }];
 const BOTS: BotRef[] = [
-  { slug: "plan", name: "Plan Ease", color: "#8F6A1F", kind: "plan" },
+  { slug: "plan", name: "Nudj", color: "#8F6A1F", kind: "plan" },
   { slug: "notes", name: "Notes", color: "#2F5D50", kind: "notes" },
 ];
 
@@ -51,10 +51,10 @@ test("a pick takes the \"@wo\" out and adds the chip; a bot then a thing; a tool
   assert.strictEqual(lead.text, "hi", "and the space after it at the start");
   const b = pickBot(typed(s, "hi /pl"), BOTS[0]!);
   assert.strictEqual(b.text, "hi ");
-  assert.deepStrictEqual(b.menu, { kind: "things", bot: "plan", botName: "Plan Ease" });
+  assert.deepStrictEqual(b.menu, { kind: "things", bot: "plan", botName: "Nudj" });
   assert.strictEqual(typed(b, "hi x").menu?.kind, "things", "the things stay open while typing");
   const t = pickThing(b, { id: "e:1", title: "Doctor", line: "Fri, 7:40" });
-  assert.deepStrictEqual(t.thing, { bot: "plan", botName: "Plan Ease", id: "e:1", title: "Doctor" });
+  assert.deepStrictEqual(t.thing, { bot: "plan", botName: "Nudj", id: "e:1", title: "Doctor" });
   assert.strictEqual(t.menu, null);
   assert.strictEqual(pickThing(EMPTY, { id: "x", title: "x", line: "" }), EMPTY, "no bot's list: nothing");
   const tool = pickTool(typed(EMPTY, "/as"));
@@ -77,7 +77,7 @@ test("backspace in an empty field takes the last chip off: the thing, then the p
 test("the draft: the words without the chips, and the chips' ids and names; empty strings for none; read back", () => {
   const s = pickThing(pickBot(typed(pickPerson(typed(EMPTY, "@m"), PEOPLE[0]!), " see this /"), BOTS[0]!), { id: "e:1", title: "Doctor", line: "" });
   const d = draftOf(s);
-  assert.deepStrictEqual(d, { text: "see this", toId: "u1", toName: "Mom", bot: "plan", botName: "Plan Ease", thingId: "e:1", thingTitle: "Doctor" });
+  assert.deepStrictEqual(d, { text: "see this", toId: "u1", toName: "Mom", bot: "plan", botName: "Nudj", thingId: "e:1", thingTitle: "Doctor" });
   assert.deepStrictEqual(draftOf(EMPTY), { text: "", toId: "", toName: "", bot: "", botName: "", thingId: "", thingTitle: "" });
   const back = fromDraft(d);
   assert.deepStrictEqual(back.person, { id: "u1", name: "Mom" });
@@ -132,13 +132,13 @@ test('pick "bot": a bot from "/" becomes the chip, and no things are opened', ()
   assert.strictEqual(after.text, "", 'the "/pl" is taken out of the words');
   // The draft says the bot and no thing, which is exactly how the two are told apart on the wire.
   assert.deepStrictEqual(draftOf({ ...after, text: "what's on tomorrow" }), {
-    text: "what's on tomorrow", toId: "", toName: "", bot: "plan", botName: "Plan Ease", thingId: "", thingTitle: "",
+    text: "what's on tomorrow", toId: "", toName: "", bot: "plan", botName: "Nudj", thingId: "", thingTitle: "",
   });
 });
 
 test('the default is untouched: "/" then a bot still opens that bot\'s things', () => {
   const after = pickBot(typed(EMPTY, "/pl"), BOTS[0]!);
-  assert.deepStrictEqual(after.menu, { kind: "things", bot: "plan", botName: "Plan Ease" });
+  assert.deepStrictEqual(after.menu, { kind: "things", bot: "plan", botName: "Nudj" });
   assert.strictEqual(after.bot, null, "no bot chip: the thing will be the chip");
 });
 

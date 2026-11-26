@@ -104,7 +104,7 @@ export function windowRange(now: Date, offsetMin: number, days: number): { fromM
  * handed over is dropped rather than guessed at.
  *
  * A longer stretch is SPLIT into back-to-back two-day pieces rather than cut short: a week away is busy all week, and cutting it
- * to its first two days would leave the rest reading as free, so Plan Ease would plan and call into it.
+ * to its first two days would leave the rest reading as free, so Nudj would plan and call into it.
  */
 export function cleanBlocks(raw: unknown, fromMs: number, toMs: number): BusyBlock[] {
   if (!Array.isArray(raw)) return [];

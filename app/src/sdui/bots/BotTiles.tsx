@@ -16,7 +16,11 @@
  * takes the bots away and leaves the tiles working.
  *
  *   { type: "BotTiles", props: { tiles: [{ slug, name, sub, color, kind, state, action }], columns, height, padding,
- *     gap, faces: { regular, medium, semibold }, strip?, stripHeight? } }
+ *     gap, faces: { regular, medium, semibold }, strip?, stripHeight?, stage?, subLines?, nameGap? } }
+ *
+ * `stage` (capability "BotTilesStage"): the bot plays in the top `stage` px of each tile and its words start under it,
+ * so a taller tile gives the words room instead of the bot; `subLines` is how many lines the idle line may take (2),
+ * `nameGap` the room between the name and the line (3).
  *
  * `strip` (capability "BotTilesStrip"): one more tile as a full-width row under the grid (Notes), its bot on a stage of
  * its own at the left and its name and line on the right. It is the last bot of the same world, so its tap is the
@@ -103,6 +107,10 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
   const H = Number(props?.height) || 132;
   const pad = Number(props?.padding) || 16;
   const gap = Number(props?.gap) || 12;
+  // BotTilesStage: the bot's room at the top of each tile; its words start under it and the tile grows down for them.
+  const stage = Number(props?.stage) > 0 ? Number(props.stage) : 0;
+  const subLines = Math.max(1, Math.min(6, Number(props?.subLines) || 2));
+  const nameGap = Math.max(0, Math.min(24, Number(props?.nameGap) || 3));
   const faces = { regular: "Tailzu Geist", medium: "Tailzu Geist Medium", semibold: "Tailzu Geist SemiBold", ...(props?.faces ?? {}) };
   const reduced = useReducedMotion();
 
@@ -143,7 +151,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
     if (!tw) return;
     grid.forEach((_t, i) => {
       const x = (i % cols) * (tw + gap), y = Math.floor(i / cols) * (H + gap);
-      world.place(i, x, y, tw - 2, H - 2, floors.current[i] ? floors.current[i]! - 3 : H - pad - 46);
+      world.place(i, x, y, tw - 2, H - 2, floors.current[i] ? floors.current[i]! - 3 : stage ? stage - 3 : H - pad - 46);
     });
     // The strip's bot stands near the foot of its stage.
     if (strip) world.place(grid.length, 0, Math.ceil(grid.length / cols) * (H + gap), sw, SH - 2, SH - 2 - pad * 0.7);
@@ -236,7 +244,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
         const mark = make ? null : t.state === "working" ? t.color : t.state === "needs" ? INK : null;
         const sub = t.state === "working"
           ? { color: t.color, fontFamily: faces.medium, lines: 1 }
-          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold, lines: 1 } : { color: META, fontFamily: faces.regular, lines: 2 };
+          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold, lines: 1 } : { color: META, fontFamily: faces.regular, lines: subLines };
         return (
           <Animated.View key={`${t.slug}-${i}`} style={{ width: tw, height: H, transform: [{ scale: scales[i]! }] }}>
             <Pressable
@@ -261,7 +269,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
               <Animated.View
                 pointerEvents="none"
                 onLayout={(e) => { const y = e.nativeEvent.layout.y; if (Math.abs((floors.current[i] ?? 0) - y) > 0.5) { floors.current[i] = y; place(); } }}
-                style={{ position: "absolute", left: pad, right: pad, bottom: pad, gap: 3, opacity: fades[i] }}
+                style={{ position: "absolute", left: pad, right: pad, ...(stage ? { top: stage } : { bottom: pad }), gap: nameGap, opacity: fades[i] }}
               >
                 <Text style={{ fontFamily: faces.semibold, fontWeight: "normal", fontSize: 16, lineHeight: 21, color: INK }} numberOfLines={1}>{t.name}</Text>
                 <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 12, lineHeight: 16, color: sub.color }} numberOfLines={sub.lines}>{t.sub}</Text>

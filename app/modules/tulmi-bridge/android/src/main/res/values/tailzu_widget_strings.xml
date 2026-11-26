@@ -11,7 +11,7 @@
       docs/widget-glance-v2.md in the backend: needsYou, ready, ask, brand,
       youDecide, working, step, minIn, seePr, done; and min, pr and the answer's
       states, which a glance may add), and its picker preview's sample: Code bot
-      building the cart fix, step 3 of 5, while Travel bot finds a hotel.
+      building the cart fix, step 3 of 5, while Nomaz finds a hotel.
     -->
     <string name="tailzu_x0_label" translatable="false">X0</string>
     <string name="tailzu_x0_description">Your bots at a glance: what needs you, what they\'re doing, and Ask.</string>
@@ -39,7 +39,7 @@
     <string name="tailzu_x0_preview_stage3">Build</string>
     <string name="tailzu_x0_preview_stage4">Check</string>
     <string name="tailzu_x0_preview_stage5">Ship</string>
-    <string name="tailzu_x0_preview_crew">Travel bot</string>
+    <string name="tailzu_x0_preview_crew">Nomaz</string>
     <string name="tailzu_x0_preview_crew_line">finding a hotel in Goa</string>
 
     <!--

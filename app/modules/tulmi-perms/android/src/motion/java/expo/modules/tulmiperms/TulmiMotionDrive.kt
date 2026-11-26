@@ -23,7 +23,7 @@ import com.google.android.gms.location.DetectedActivity
  *
  * THE ANSWER IS THREE WORDS AND NOTHING MORE: "driving", "not driving" or "unknown" (SPEC 9.1,
  * 5.3). Never a speed, a place, a confidence number, a vehicle type or a time. One question, asked
- * once, about 30 seconds before a Plan Ease call would ring, and the answer is not written anywhere
+ * once, about 30 seconds before a Nudj call would ring, and the answer is not written anywhere
  * after it is given.
  *
  * TRANSITIONS ARE EDGES, NOT A HEARTBEAT, which is the one thing this file has to get right. An

@@ -5,7 +5,7 @@
  * Two uses, both narrow. (A) STEPS for a fitness bot when Apple Health is not used: the phone's own step counter, plus walks,
  * runs and rides of ten minutes or more, turned into exactly the summary Health sends — a day, a step total and a few
  * {kind, minutes}. Nothing finer than a day, no place, and a car is never sent as a workout. (B) The DRIVING CHECK just before a
- * Plan Ease call: the phone answers "driving" or "not driving" and nothing else, and it is not kept past that call's own record.
+ * Nudj call: the phone answers "driving" or "not driving" and nothing else, and it is not kept past that call's own record.
  */
 import type { WorkoutIn, WorkoutKind } from "./healthCore.ts";
 

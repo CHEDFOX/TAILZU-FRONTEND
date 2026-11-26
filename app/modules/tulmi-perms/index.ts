@@ -309,7 +309,7 @@ export interface TulmiPermsNative {
 
   /**
    * Whether the phone has been in a car in the last `windowSec`: true, false, or null when
-   * CoreMotion cannot say. Asked once, just before a Plan Ease call, and never kept.
+   * CoreMotion cannot say. Asked once, just before a Nudj call, and never kept.
    */
   motionDriving(windowSec: number): Promise<boolean | null>;
 

@@ -244,7 +244,7 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
         <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, minHeight: 36 }}>
           {st.person && chip("person", st.person.name, () => update({ ...st, person: null }))}
           {st.thing && chip("thing", `${st.thing.title} · ${st.thing.botName}`, () => update({ ...st, thing: null }))}
-          {/* The bot the message goes to (pick "bot"): its name alone, so the chip reads as "to Plan Ease" and not as a thing. */}
+          {/* The bot the message goes to (pick "bot"): its name alone, so the chip reads as "to Nudj" and not as a thing. */}
           {!st.thing && st.bot && chip("bot", st.bot.name, () => update({ ...st, bot: null }))}
           <TextInput
             ref={input}

@@ -514,7 +514,7 @@ print(len(L), "layouts")
 PREVIEW_HEAD = """<?xml version="1.0" encoding="utf-8"?>
 <!--
   What the widget picker shows on Android 12+ before X0 is placed (previewLayout): the 4x2 with Code bot at work on the cart fix,
-  step 3 of 5, and the crew's faces while Travel bot finds a hotel. Fixed, because the picker cannot read what the app wrote; the
+  step 3 of 5, and the crew's faces while Nomaz finds a hotel. Fixed, because the picker cannot read what the app wrote; the
   colours follow the phone's light or dark theme. Before Android 12 the picker shows tailzu_x0_preview_image instead.
   Generated with the tailzu_x0_* layouts (android/x0-layouts.py).
 -->
