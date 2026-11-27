@@ -778,7 +778,17 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
         const fileName = safeFileName(action.filename, `${str("download.filePrefix", "tulmi-")}${Date.now()}`);
         const dest = `${FileSystem.cacheDirectory}${fileName}`;
         const res = await FileSystem.downloadAsync(action.url, dest);
+        if (res.status && (res.status < 200 || res.status >= 300)) throw new Error(`download ${res.status}`);
         ctx.store.set("_lastDownload", res.uri);
+        // MediaSave: the file the app just made, saved or handed on, in one tap (a later action could never name this path).
+        if (action.then === "photos") {
+          const perm = await MediaLibrary.requestPermissionsAsync();
+          if (!perm.granted) { ctx.toast(txt("toast.photosDenied", "Photos permission denied"), "error"); break; }
+          await MediaLibrary.saveToLibraryAsync(res.uri);
+          ctx.toast(txt("toast.photosSaved", "Saved to Photos"), "success");
+        } else if (action.then === "files") {
+          if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(res.uri, action.mimeType ? { mimeType: action.mimeType } : undefined);
+        }
         await runAction(action.onSuccess, ctx);
       } catch {
         await runAction(action.onError, ctx);

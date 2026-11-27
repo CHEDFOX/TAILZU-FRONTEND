@@ -134,6 +134,11 @@ export const CORE_COMPONENTS = [
    */
   "FileUpload", "AudioPlay", "VoiceRecord",
   /**
+   * NOT A COMPONENT — download's `then` (actions.ts): "photos" saves what was downloaded to Photos, "files" hands it to the share
+   * sheet (Save to Files). The server's media viewer offers Save to Photos and Download only to a bundle that says this.
+   */
+  "MediaSave",
+  /**
    * A running web page or artifact in a sandbox of its own (LiveView.tsx), and — NOT A COMPONENT — the outbox
    * (offline.tsx): asks kept while offline and sent once, in order; `online`, `outbox`, `outboxWaiting` in every
    * screen's state; the Offline page in place of Home while offline, and the line over the others. types.ts 3e.

@@ -979,7 +979,9 @@ export type ActionSpec =
   | { kind: "sms"; number?: string; body?: string }
   | { kind: "email"; to?: string; subject?: string; body?: string }
   | { kind: "phone"; number: string }
-  | { kind: "download"; url: string; filename?: string; onSuccess?: ActionRef; onError?: ActionRef }
+  /** `then` (MediaSave): what happens once the file is on the phone: "photos" saves a picture or a video to Photos, "files" opens the
+   *  share sheet with the file (Save to Files, AirDrop, another app). Without it the file only lands in the app's own cache. */
+  | { kind: "download"; url: string; filename?: string; then?: "photos" | "files"; mimeType?: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "saveToPhotos"; path: string }
   // media pickers
   | { kind: "pickImage"; assignTo: string; source?: "library" | "camera"; onSuccess?: ActionRef; onError?: ActionRef }
