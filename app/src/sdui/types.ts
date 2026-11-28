@@ -487,7 +487,7 @@ export interface BotTilesProps {
   height: number;
   padding: number;
   gap: number;
-  faces: { regular: string; medium: string; semibold: string };
+  faces: { regular: string; medium: string; semibold: string; bold?: string };
   /** One more tile, as a full-width row under the grid (Notes): its bot at the left, its words at the right. Capability BOT_TILES_STRIP. */
   strip?: BotTileSpec;
   /** BotTilesStage: the bot's room at the top of each tile (px); the words start under it. */

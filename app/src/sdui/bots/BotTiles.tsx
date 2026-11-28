@@ -20,7 +20,8 @@
  *
  * `stage` (capability "BotTilesStage"): the bot plays in the top `stage` px of each tile and its words start under it,
  * so a taller tile gives the words room instead of the bot; `subLines` is how many lines the idle line may take (2),
- * `nameGap` the room between the name and the line (3).
+ * `nameGap` the room between the name and the line (7). The name is in capitals and bold, the line semibold, and both
+ * sit on a veil: the fabric under them blurred and washed pale, fading in from above (Veil).
  *
  * `strip` (capability "BotTilesStrip"): one more tile as a full-width row under the grid (Notes), its bot on a stage of
  * its own at the left and its name and line on the right. It is the last bot of the same world, so its tap is the
@@ -35,7 +36,8 @@
  * dropped (its fades come back at once). The first tap's action already waits longer than that, so a single tap is as it was.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, AppState, Pressable, Text, View } from "react-native";
+import { Animated, AppState, Platform, Pressable, Text, View } from "react-native";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import type { CompProps } from "../components/props";
 import { runAction } from "../actions";
 import type { BotTileSpec } from "../types";
@@ -47,6 +49,62 @@ import { voiceLevel } from "../voice/voiceBus";
 import * as K from "../knobs";
 
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
+
+/**
+ * The veil's fade: it starts VEIL_LIFT above the words, which is where the bot's feet are (place: the floor is the
+ * words' top less 3), so he stands on its edge, and it is fully in VEIL_FADE further down. How white it is once in.
+ */
+const VEIL_LIFT = 4, VEIL_FADE = 14, VEIL_WHITE = 0.74;
+const WEB = Platform.OS === "web";
+
+/**
+ * THE VEIL UNDER A TILE'S WORDS: the fabric behind the name and line, blurred and washed pale, fading in from above so
+ * there is no edge. Without it the words sat straight on the pattern and lost to it. It is a child of the words'
+ * own box, stretched to the tile's sides and down to its bottom (the tile clips it), so it follows the words wherever
+ * they sit and fades with them on a tap.
+ *
+ * The web has a real masked blur (backdrop-filter under a mask); a phone's blur has no mask, so a gradient of the same
+ * white fades in over the top of it and hides its edge.
+ */
+function Veil({ pad }: { pad: number }): React.ReactElement {
+  const box = { position: "absolute" as const, left: -pad, right: -pad, top: -VEIL_LIFT, bottom: -400 };
+  if (WEB) {
+    return (
+      <View
+        style={box}
+        ref={(el) => {
+          const st = (el as unknown as { style?: Record<string, string> } | null)?.style;
+          if (!st) return;
+          const mask = `linear-gradient(to bottom, transparent 0, #000 ${VEIL_FADE}px)`;
+          Object.assign(st, {
+            backdropFilter: "blur(6px)", webkitBackdropFilter: "blur(6px)", maskImage: mask, webkitMaskImage: mask,
+            backgroundColor: `rgba(255,255,255,${VEIL_WHITE})`,
+          });
+        }}
+      />
+    );
+  }
+  // Required here, not at the top: the web bundle never touches the native module.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { BlurView } = require("expo-blur") as typeof import("expo-blur");
+  return (
+    <View style={box}>
+      <View style={{ position: "absolute", left: 0, right: 0, top: VEIL_FADE * 0.6, bottom: 0 }}>
+        <BlurView intensity={14} tint="light" style={{ flex: 1 }} />
+        <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: `rgba(255,255,255,${VEIL_WHITE})` }} />
+      </View>
+      <Svg width="100%" height={VEIL_FADE} style={{ position: "absolute", left: 0, top: 0 }}>
+        <Defs>
+          <LinearGradient id="veil" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={PAPER} stopOpacity={0} />
+            <Stop offset="1" stopColor={PAPER} stopOpacity={VEIL_WHITE} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height={VEIL_FADE} fill="url(#veil)" />
+      </Svg>
+    </View>
+  );
+}
 
 /** The bots, by slug, for the life of the app: Home comes back to them where they were. */
 const LIVES = new Map<string, BotTile>();
@@ -110,8 +168,10 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
   // BotTilesStage: the bot's room at the top of each tile; its words start under it and the tile grows down for them.
   const stage = Number(props?.stage) > 0 ? Number(props.stage) : 0;
   const subLines = Math.max(1, Math.min(6, Number(props?.subLines) || 2));
-  const nameGap = Math.max(0, Math.min(24, Number(props?.nameGap) || 3));
-  const faces = { regular: "Tailzu Geist", medium: "Tailzu Geist Medium", semibold: "Tailzu Geist SemiBold", ...(props?.faces ?? {}) };
+  const nameGap = Math.max(0, Math.min(24, Number(props?.nameGap) || 7));
+  const faces = { regular: "Tailzu Geist", medium: "Tailzu Geist Medium", semibold: "Tailzu Geist SemiBold", bold: "Tailzu Geist Bold", ...(props?.faces ?? {}) };
+  // The name in capitals and bold, the line under it semibold whatever its state (its colour still says the state).
+  const nameStyle = { fontFamily: faces.bold, fontWeight: "normal" as const, fontSize: 15, lineHeight: 20, letterSpacing: 0.6, color: INK, textTransform: "uppercase" as const };
   const reduced = useReducedMotion();
 
   const [W, setW] = useState(0);
@@ -243,8 +303,8 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
         const bw = make ? 1.5 : 1;
         const mark = make ? null : t.state === "working" ? t.color : t.state === "needs" ? INK : null;
         const sub = t.state === "working"
-          ? { color: t.color, fontFamily: faces.medium, lines: 1 }
-          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold, lines: 1 } : { color: META, fontFamily: faces.regular, lines: subLines };
+          ? { color: t.color, fontFamily: faces.semibold, lines: 1 }
+          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold, lines: 1 } : { color: META, fontFamily: faces.semibold, lines: subLines };
         return (
           <Animated.View key={`${t.slug}-${i}`} style={{ width: tw, height: H, transform: [{ scale: scales[i]! }] }}>
             <Pressable
@@ -271,7 +331,8 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
                 onLayout={(e) => { const y = e.nativeEvent.layout.y; if (Math.abs((floors.current[i] ?? 0) - y) > 0.5) { floors.current[i] = y; place(); } }}
                 style={{ position: "absolute", left: pad, right: pad, ...(stage ? { top: stage } : { bottom: pad }), gap: nameGap, opacity: fades[i] }}
               >
-                <Text style={{ fontFamily: faces.semibold, fontWeight: "normal", fontSize: 16, lineHeight: 21, color: INK }} numberOfLines={1}>{t.name}</Text>
+                {bots && <Veil pad={pad} />}
+                <Text style={nameStyle} numberOfLines={1}>{t.name}</Text>
                 <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 12, lineHeight: 16, color: sub.color }} numberOfLines={sub.lines}>{t.sub}</Text>
               </Animated.View>
             </Pressable>
@@ -281,8 +342,8 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
       {tw > 0 && strip && (() => {
         const i = grid.length, t = strip;
         const mark = t.state === "working" ? t.color : t.state === "needs" ? INK : null;
-        const sub = t.state === "working" ? { color: t.color, fontFamily: faces.medium }
-          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold } : { color: META, fontFamily: faces.regular };
+        const sub = t.state === "working" ? { color: t.color, fontFamily: faces.semibold }
+          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold } : { color: META, fontFamily: faces.semibold };
         return (
           <Animated.View key={`strip-${t.slug}`} style={{ width: W, height: SH, transform: [{ scale: scales[i]! }] }}>
             <Pressable
@@ -303,9 +364,9 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
               )}
               <Animated.View
                 pointerEvents="none"
-                style={{ position: "absolute", left: sw, right: pad + (mark ? 16 : 0), top: 0, bottom: 0, justifyContent: "center", gap: 3, opacity: fades[i] }}
+                style={{ position: "absolute", left: sw, right: pad + (mark ? 16 : 0), top: 0, bottom: 0, justifyContent: "center", gap: nameGap, opacity: fades[i] }}
               >
-                <Text style={{ fontFamily: faces.semibold, fontWeight: "normal", fontSize: 16, lineHeight: 21, color: INK }} numberOfLines={1}>{t.name}</Text>
+                <Text style={nameStyle} numberOfLines={1}>{t.name}</Text>
                 <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 13, lineHeight: 17, color: sub.color }} numberOfLines={1}>{t.sub}</Text>
               </Animated.View>
             </Pressable>
