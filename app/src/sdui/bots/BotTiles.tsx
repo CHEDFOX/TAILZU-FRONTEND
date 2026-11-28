@@ -51,12 +51,12 @@ import * as K from "../knobs";
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
 
 /** How far above its name the bot stands (place: the floor is the words' top less this). */
-const FEET_GAP = 10;
+const FEET_GAP = 24;
 /**
  * The veil's fade: it starts VEIL_LIFT above the words, where the bot's feet are, so he stands on its edge, and it
  * is fully in VEIL_FADE further down. How white it is once in.
  */
-const VEIL_LIFT = FEET_GAP, VEIL_FADE = 14, VEIL_WHITE = 0.74;
+const VEIL_LIFT = FEET_GAP, VEIL_FADE = 14, VEIL_WHITE = 0.42;
 const WEB = Platform.OS === "web";
 
 /**
@@ -79,7 +79,7 @@ function Veil({ pad }: { pad: number }): React.ReactElement {
           if (!st) return;
           const mask = `linear-gradient(to bottom, transparent 0, #000 ${VEIL_FADE}px)`;
           Object.assign(st, {
-            backdropFilter: "blur(6px)", webkitBackdropFilter: "blur(6px)", maskImage: mask, webkitMaskImage: mask,
+            backdropFilter: "blur(3px)", webkitBackdropFilter: "blur(3px)", maskImage: mask, webkitMaskImage: mask,
             backgroundColor: `rgba(255,255,255,${VEIL_WHITE})`,
           });
         }}
@@ -209,14 +209,18 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
 
   // Where each tile's words start (its floor), once laid out. Still (Reduce Motion): the pose again, and paint.
   const floors = useRef<number[]>([]);
+  // Each tile's box once laid out: on a stage the card grows for its words, so its height and row are read, not assumed.
+  const boxes = useRef<Array<{ x: number; y: number; h: number }>>([]);
+  const [hs, setHs] = useState<number[]>([]);
   const place = useCallback(() => {
     if (!tw) return;
     grid.forEach((_t, i) => {
-      const x = (i % cols) * (tw + gap), y = Math.floor(i / cols) * (H + gap);
-      world.place(i, x, y, tw - 2, H - 2, floors.current[i] ? floors.current[i]! - FEET_GAP : stage ? stage - FEET_GAP : H - pad - 46);
+      const b = boxes.current[i];
+      const x = b ? b.x : (i % cols) * (tw + gap), y = b ? b.y : Math.floor(i / cols) * (H + gap), h = b ? b.h : H;
+      world.place(i, x, y, tw - 2, h - 2, floors.current[i] ? floors.current[i]! - FEET_GAP : stage ? stage - FEET_GAP : H - pad - 46);
     });
     // The strip's bot stands near the foot of its stage.
-    if (strip) world.place(grid.length, 0, Math.ceil(grid.length / cols) * (H + gap), sw, SH - 2, SH - 2 - pad * 0.7);
+    if (strip) world.place(grid.length, 0, boxes.current[grid.length]?.y ?? Math.ceil(grid.length / cols) * (H + gap), sw, SH - 2, SH - 2 - pad * 0.7);
     dressAndPlay(world, tiles, L, started);
     if (still.current && reduced !== null) { world.settle(true); paintAll(); }
   }, [tw, sw, grid, strip, SH, cols, gap, H, pad, world, reduced, paintAll, tiles, L, started]);
@@ -308,20 +312,30 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
           ? { color: t.color, fontFamily: faces.semibold, lines: 1 }
           : t.state === "needs" ? { color: INK, fontFamily: faces.semibold, lines: 1 } : { color: META, fontFamily: faces.semibold, lines: subLines };
         return (
-          <Animated.View key={`${t.slug}-${i}`} style={{ width: tw, height: H, transform: [{ scale: scales[i]! }] }}>
+          <Animated.View
+            key={`${t.slug}-${i}`}
+            onLayout={(e) => {
+              const { x, y, height } = e.nativeEvent.layout, b = boxes.current[i];
+              if (b && Math.abs(b.x - x) < 0.5 && Math.abs(b.y - y) < 0.5 && Math.abs(b.h - height) < 0.5) return;
+              boxes.current[i] = { x, y, h: height };
+              setHs((o) => { const n = o.slice(); n[i] = height; return n; });
+              place();
+            }}
+            style={{ width: tw, ...(stage ? { minHeight: H } : { height: H }), transform: [{ scale: scales[i]! }] }}
+          >
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t.label || `${t.name}. ${t.sub}`}
               onPress={(e) => tap(i, e.nativeEvent.locationX, e.nativeEvent.locationY)}
               style={{
-                flex: 1, borderRadius: 20, borderWidth: bw, borderColor: make ? DASHED : LINE, borderStyle: make ? "dashed" : "solid",
+                flexGrow: 1, borderRadius: 20, borderWidth: bw, borderColor: make ? DASHED : LINE, borderStyle: make ? "dashed" : "solid",
                 backgroundColor: PAPER, overflow: "hidden",
               }}
             >
               {bots && (
                 <TileSurface
                   ref={(r) => { painters.current[i] = r; }}
-                  w={tw - 2} h={H - 2}
+                  w={tw - 2} h={(hs[i] || H) - 2}
                   style={{ position: "absolute", left: 0, top: 0 }}
                 />
               )}
@@ -331,11 +345,11 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
               <Animated.View
                 pointerEvents="none"
                 onLayout={(e) => { const y = e.nativeEvent.layout.y; if (Math.abs((floors.current[i] ?? 0) - y) > 0.5) { floors.current[i] = y; place(); } }}
-                style={{ position: "absolute", left: pad, right: pad, ...(stage ? { top: stage } : { bottom: pad }), gap: nameGap, opacity: fades[i] }}
+                style={{ ...(stage ? { marginTop: stage, marginBottom: pad, marginHorizontal: pad } : { position: "absolute", left: pad, right: pad, bottom: pad }), gap: nameGap, opacity: fades[i] }}
               >
                 {bots && <Veil pad={pad} />}
                 <Text style={nameStyle} numberOfLines={1}>{t.name}</Text>
-                <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 12, lineHeight: 16, color: sub.color }} numberOfLines={sub.lines}>{t.sub}</Text>
+                <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 12, lineHeight: 16, color: sub.color }} numberOfLines={stage ? undefined : sub.lines}>{t.sub}</Text>
               </Animated.View>
             </Pressable>
           </Animated.View>
@@ -347,7 +361,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
         const sub = t.state === "working" ? { color: t.color, fontFamily: faces.semibold }
           : t.state === "needs" ? { color: INK, fontFamily: faces.semibold } : { color: META, fontFamily: faces.semibold };
         return (
-          <Animated.View key={`strip-${t.slug}`} style={{ width: W, height: SH, transform: [{ scale: scales[i]! }] }}>
+          <Animated.View key={`strip-${t.slug}`} onLayout={(e) => { const { x, y, height } = e.nativeEvent.layout; if (boxes.current[i]?.y !== y) { boxes.current[i] = { x, y, h: height }; place(); } }} style={{ width: W, height: SH, transform: [{ scale: scales[i]! }] }}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t.label || `${t.name}. ${t.sub}`}
