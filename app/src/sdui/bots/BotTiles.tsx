@@ -50,11 +50,13 @@ import * as K from "../knobs";
 
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
 
+/** How far above its name the bot stands (place: the floor is the words' top less this). */
+const FEET_GAP = 10;
 /**
- * The veil's fade: it starts VEIL_LIFT above the words, which is where the bot's feet are (place: the floor is the
- * words' top less 3), so he stands on its edge, and it is fully in VEIL_FADE further down. How white it is once in.
+ * The veil's fade: it starts VEIL_LIFT above the words, where the bot's feet are, so he stands on its edge, and it
+ * is fully in VEIL_FADE further down. How white it is once in.
  */
-const VEIL_LIFT = 4, VEIL_FADE = 14, VEIL_WHITE = 0.74;
+const VEIL_LIFT = FEET_GAP, VEIL_FADE = 14, VEIL_WHITE = 0.74;
 const WEB = Platform.OS === "web";
 
 /**
@@ -211,7 +213,7 @@ function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React
     if (!tw) return;
     grid.forEach((_t, i) => {
       const x = (i % cols) * (tw + gap), y = Math.floor(i / cols) * (H + gap);
-      world.place(i, x, y, tw - 2, H - 2, floors.current[i] ? floors.current[i]! - 3 : stage ? stage - 3 : H - pad - 46);
+      world.place(i, x, y, tw - 2, H - 2, floors.current[i] ? floors.current[i]! - FEET_GAP : stage ? stage - FEET_GAP : H - pad - 46);
     });
     // The strip's bot stands near the foot of its stage.
     if (strip) world.place(grid.length, 0, Math.ceil(grid.length / cols) * (H + gap), sw, SH - 2, SH - 2 - pad * 0.7);
